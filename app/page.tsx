@@ -28,7 +28,7 @@ const lessonSteps: Array<{ skill: Skill; minutes: number; description: string; t
   { skill: "Listening", minutes: 3, description: "A breakfast order", tone: "blue" },
   { skill: "Grammar", minutes: 3, description: "Could I have…?", tone: "peach" },
   { skill: "Speaking", minutes: 4, description: "Order your breakfast", tone: "yellow" },
-  { skill: "Conversation", minutes: 5, description: "Roleplay with Maya", tone: "violet" },
+  { skill: "Conversation", minutes: 5, description: "Roleplay with Mia", tone: "violet" },
 ];
 
 const vocabulary = [
