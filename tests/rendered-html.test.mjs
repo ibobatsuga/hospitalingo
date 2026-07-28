@@ -16,15 +16,15 @@ async function render() {
   );
 }
 
-test("renders the Lancar learning app", async () => {
+test("renders the HospitaLingo learning app", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>Lancar — Speak English every day<\/title>/i);
-  assert.match(html, /30-DAY CHALLENGE/);
-  assert.match(html, /Start today’s lesson/);
+  assert.match(html, /<title>HospitaLingo — Speak confidently with every guest<\/title>/i);
+  assert.match(html, /Simple guest conversations/);
+  assert.match(html, /Start speaking/);
   assert.match(html, /Speaking/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton|Your site is taking shape/i);
 });
@@ -37,7 +37,7 @@ test("removes disposable starter preview assets", async () => {
   ]);
 
   assert.match(page, /30-day/i);
-  assert.match(layout, /Lancar/);
+  assert.match(layout, /HospitaLingo/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
   await assert.rejects(access(new URL("../app/_sites-preview", templateRoot)));
 });

@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Lancar — Speak English every day",
-  description: "A practical 30-day English speaking coach for Indonesian learners.",
+  title: "HospitaLingo — Speak confidently with every guest",
+  description: "A practical AI-powered English speaking coach for hospitality professionals.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

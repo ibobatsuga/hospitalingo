@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type View = "today" | "practice" | "progress";
 type Skill = "Vocabulary" | "Listening" | "Grammar" | "Speaking" | "Conversation";
@@ -44,6 +44,29 @@ const defaultReplies = [
   "Of course. Is there anything else I can get for you?",
 ];
 
+const practiceScenes = [
+  {
+    title: "Hotel check-in",
+    subtitle: "Welcome a new guest",
+    image: "https://images.unsplash.com/photo-1556740749-887f6717d7e4?auto=format&fit=crop&w=900&q=85",
+  },
+  {
+    title: "At the restaurant",
+    subtitle: "Take a dinner order",
+    image: "https://images.unsplash.com/photo-1569683236049-bc137196a02a?auto=format&fit=crop&w=900&q=85",
+  },
+  {
+    title: "Coffee break",
+    subtitle: "Chat with a guest",
+    image: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=900&q=85",
+  },
+  {
+    title: "Handle a request",
+    subtitle: "Respond with confidence",
+    image: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=900&q=85",
+  },
+];
+
 function scoreSentence(value: string) {
   const clean = value.trim();
   if (!clean) return null;
@@ -76,6 +99,7 @@ export default function Home() {
   const [placementStep, setPlacementStep] = useState(0);
   const [placementScore, setPlacementScore] = useState(0);
   const [placementResult, setPlacementResult] = useState<string | null>(null);
+  const [greeting, setGreeting] = useState("Good to see you");
   const recognitionRef = useRef<RecognitionLike | null>(null);
 
   useEffect(() => {
@@ -93,15 +117,13 @@ export default function Home() {
     window.localStorage.setItem("lancar-progress", JSON.stringify(completed));
   }, [completed]);
 
+  useEffect(() => {
+    const hour = new Date().getHours();
+    setGreeting(hour < 11 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening");
+  }, []);
+
   const progress = Math.round((completed.length / lessonSteps.length) * 100);
   const xp = 320 + completed.length * 35;
-
-  const greeting = useMemo(() => {
-    const hour = new Date().getHours();
-    if (hour < 11) return "Good morning";
-    if (hour < 17) return "Good afternoon";
-    return "Good evening";
-  }, []);
 
   function markComplete(skill: Skill) {
     setCompleted((current) => (current.includes(skill) ? current : [...current, skill]));
@@ -191,8 +213,8 @@ export default function Home() {
     <main className="app-shell">
       <aside className="sidebar">
         <button className="brand" onClick={() => setView("today")} aria-label="Go to today">
-          <span className="brand-mark">L</span>
-          <span>Lancar<span className="brand-dot">.</span></span>
+          <span className="brand-mark">H</span>
+          <span>Hospita<span className="brand-dot">Lingo</span></span>
         </button>
 
         <nav className="main-nav" aria-label="Main navigation">
@@ -223,16 +245,16 @@ export default function Home() {
         </div>
 
         <div className="sidebar-profile">
-          <div className="avatar">AR</div>
-          <div><strong>Ardi Rahman</strong><span>A2 learner</span></div>
+          <div className="avatar">BO</div>
+          <div><strong>Bobi</strong><span>A2 hospitality learner</span></div>
           <button aria-label="Profile options">•••</button>
         </div>
       </aside>
 
       <section className="workspace">
         <header className="topbar">
-          <div className="mobile-brand"><span className="brand-mark">L</span>Lancar.</div>
-          <div className="day-chip">Day 04 <span>of 30</span></div>
+          <div className="mobile-brand"><span className="brand-mark">H</span>HospitaLingo</div>
+          <div className="day-chip">UNIT 01 <span>· Everyday hospitality</span></div>
           <div className="top-actions">
             <span className="streak">🔥 6 day streak</span>
             <button className="icon-button" aria-label="Notifications">◦</button>
@@ -240,75 +262,77 @@ export default function Home() {
         </header>
 
         {view === "today" && (
-          <div className="content-grid">
-            <div className="primary-column">
-              <section className="hero-card">
-                <div>
-                  <span className="eyebrow">TODAY'S FOCUS · REAL LIFE ENGLISH</span>
-                  <h1>{greeting}, Ardi.<br />Let’s order breakfast <em>without freezing.</em></h1>
-                  <p>By the end of today, you’ll be able to order naturally, ask for changes, and understand the server’s reply.</p>
-                  <div className="hero-actions">
-                    <button className="primary-button" onClick={() => { setActiveSkill("Vocabulary"); setView("practice"); }}>
-                      Start today’s lesson <span>→</span>
+          <div className="hospital-dashboard">
+            <section className="dashboard-focus">
+              <div className="welcome-row">
+                <div className="welcome-person">
+                  <div className="profile-photo" aria-hidden="true" />
+                  <div><span>{greeting}</span><strong>Welcome back, Bobi</strong></div>
+                </div>
+                <button className="notification-button" aria-label="Notifications">♢<span /></button>
+              </div>
+
+              <section className="level-panel">
+                <div className="level-copy"><span>Level A2</span><strong>Building confidence</strong></div>
+                <div className="level-streak">🔥 <strong>6</strong></div>
+                <div className="segmented-progress" aria-label={`${progress}% lesson progress`}>
+                  {[0, 1, 2, 3].map((segment) => <span key={segment} className={segment <= Math.floor(progress / 25) ? "filled" : ""} />)}
+                </div>
+              </section>
+
+              <div className="unit-heading">
+                <div><span>UNIT 1 · LESSON 04</span><h1>Simple guest conversations</h1><p>Build the phrases you need to welcome, help, and delight every guest.</p></div>
+                <div className="lesson-count">▣ <span>16 lessons</span></div>
+              </div>
+
+              <section className="speaking-stage">
+                <div className="prompt-bubble">Let’s welcome a guest who has just arrived.</div>
+                <div className="stage-top">
+                  <div className="avatar-stack" aria-label="Community learners"><span>B</span><span>M</span><span>A</span></div>
+                  <button aria-label="More lesson options">•••</button>
+                </div>
+                <h2>“Good evening. Welcome to our hotel.”</h2>
+                <div className="voice-controls">
+                  <button onClick={() => speak("Good evening. Welcome to our hotel.")} aria-label="Hear the phrase">▶</button>
+                  <button className={`hero-mic ${isListening ? "recording" : ""}`} onClick={() => startRecognition("practice")} aria-label="Practice speaking">●</button>
+                  <button onClick={() => { setActiveSkill("Conversation"); setView("practice"); }} aria-label="Open conversation">•••</button>
+                </div>
+                <span className="stage-caption">Ask anything · Speak naturally</span>
+                <button className="stage-start" onClick={() => { setActiveSkill("Speaking"); setView("practice"); }}>Start speaking <span>→</span></button>
+              </section>
+
+              <div className="coach-nudge"><span>AI COACH</span><p>Try adding: <strong>“How was your journey?”</strong></p><button onClick={() => speak("How was your journey?")}>Hear it ↗</button></div>
+            </section>
+
+            <aside className="dashboard-community">
+              <div className="community-heading"><div><span>PRACTICE LIBRARY</span><h2>Choose your scene</h2></div><button onClick={() => setView("practice")}>See all →</button></div>
+              <div className="scene-grid">
+                {practiceScenes.map((scene, index) => (
+                  <button className="scene-card" key={scene.title} onClick={() => { setActiveSkill(index === 3 ? "Speaking" : "Conversation"); setView("practice"); }}>
+                    <img src={scene.image} alt="" />
+                    <span className="scene-fade" />
+                    <span className="scene-tag">Start speaking</span>
+                    <span className="scene-copy"><strong>{scene.title}</strong><small>{scene.subtitle}</small></span>
+                  </button>
+                ))}
+              </div>
+
+              <section className="daily-path-card">
+                <div className="section-heading"><div><span className="eyebrow">TODAY’S PATH</span><h2>Five small wins</h2></div><span>{completed.length}/5 done</span></div>
+                <div className="compact-lessons">
+                  {lessonSteps.map((item, index) => (
+                    <button key={item.skill} className={completed.includes(item.skill) ? "done" : ""} onClick={() => { setActiveSkill(item.skill); setView("practice"); }}>
+                      <span className={`step-number ${item.tone}`}>{completed.includes(item.skill) ? "✓" : index + 1}</span>
+                      <span><strong>{item.skill}</strong><small>{item.description}</small></span>
+                      <b>{item.minutes}m</b>
                     </button>
-                    <span>15 min · 5 activities</span>
-                  </div>
-                </div>
-                <div className="speech-orbit" aria-hidden="true">
-                  <div className="orbit-ring ring-one" />
-                  <div className="orbit-ring ring-two" />
-                  <div className="bubble bubble-one">Could I have…</div>
-                  <div className="bubble bubble-two">on the side?</div>
-                  <div className="sound-core"><span>▮▮▮</span></div>
-                </div>
-              </section>
-
-              <section className="section-block">
-                <div className="section-heading">
-                  <div><span className="eyebrow">YOUR DAILY PATH</span><h2>Five small wins</h2></div>
-                  <span className="completion-copy">{completed.length} of 5 complete</span>
-                </div>
-                <div className="lesson-list">
-                  {lessonSteps.map((item, index) => {
-                    const done = completed.includes(item.skill);
-                    return (
-                      <button
-                        className={`lesson-row ${done ? "done" : ""}`}
-                        key={item.skill}
-                        onClick={() => { setActiveSkill(item.skill); setView("practice"); }}
-                      >
-                        <span className={`step-number ${item.tone}`}>{done ? "✓" : String(index + 1).padStart(2, "0")}</span>
-                        <span className="lesson-copy"><strong>{item.skill}</strong><small>{item.description}</small></span>
-                        <span className="lesson-time">{item.minutes} min</span>
-                        <span className="row-arrow">→</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </section>
-            </div>
-
-            <aside className="right-column">
-              <section className="progress-card">
-                <div className="progress-top"><span className="eyebrow">30-DAY CHALLENGE</span><strong>{progress}%</strong></div>
-                <div className="progress-track"><span style={{ width: `${Math.max(13, progress)}%` }} /></div>
-                <div className="week-row">
-                  {["M", "T", "W", "T", "F", "S", "S"].map((day, index) => (
-                    <div key={`${day}-${index}`} className={index < 4 ? "day-done" : ""}><span>{index < 4 ? "✓" : index + 1}</span><small>{day}</small></div>
                   ))}
                 </div>
-                <p>You’re building a real habit. Come back tomorrow to keep your streak alive.</p>
               </section>
 
-              <section className="coach-card">
-                <div className="coach-head"><div className="coach-avatar">M</div><div><span>Your AI coach</span><strong>Maya</strong></div><span className="online-dot" /></div>
-                <blockquote>“You’re getting better at polite requests. Today, focus on slowing down before the key phrase.”</blockquote>
-                <button onClick={() => { setActiveSkill("Conversation"); setView("practice"); }}>Practice with Maya <span>→</span></button>
-              </section>
-
-              <button className="placement-card" onClick={() => setPlacementOpen(true)}>
+              <button className="placement-card warm" onClick={() => setPlacementOpen(true)}>
                 <span className="placement-icon">A2</span>
-                <span><strong>Not sure about your level?</strong><small>Take a 2-minute placement check</small></span>
+                <span><strong>Find your best starting level</strong><small>Take a free 2-minute check</small></span>
                 <span>→</span>
               </button>
             </aside>
@@ -388,7 +412,7 @@ export default function Home() {
 
             {activeSkill === "Conversation" && (
               <section className="activity-card conversation-card">
-                <div className="conversation-top"><div className="coach-avatar">M</div><div><span>ROLEPLAY · SUNNY SIDE CAFÉ</span><strong>Maya is your server</strong></div><span className="live-label">LIVE PRACTICE</span></div>
+                <div className="conversation-top"><div className="coach-avatar">M</div><div><span>ROLEPLAY · SUNNY SIDE CAFÉ</span><strong>Mia is your server</strong></div><span className="live-label">LIVE PRACTICE</span></div>
                 <div className="chat-window">
                   {messages.map((message, index) => (
                     <div key={`${message.from}-${index}`} className={`message ${message.from}`}><span>{message.text}</span>{message.from === "tutor" && <button onClick={() => speak(message.text)}>▶</button>}</div>
