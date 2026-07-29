@@ -153,9 +153,9 @@ export async function createInitialAdmin(
 ) {
   await ensureAuthSchema(db);
   if (!input.expectedSetupToken) throw new Error("SETUP_UNAVAILABLE");
-  const suppliedHash = await sha256(input.suppliedSetupToken);
-  const expectedHash = await sha256(input.expectedSetupToken);
-  if (!safeEqual(suppliedHash, expectedHash)) throw new Error("INVALID_SETUP_TOKEN");
+  const suppliedToken = input.suppliedSetupToken.trim();
+  const expectedToken = input.expectedSetupToken.trim();
+  if (!safeEqual(suppliedToken, expectedToken)) throw new Error("INVALID_SETUP_TOKEN");
   if ((await userCount(db)) > 0) throw new Error("SETUP_COMPLETE");
   const password = await buildPasswordRecord(input.password);
   const userId = crypto.randomUUID();
