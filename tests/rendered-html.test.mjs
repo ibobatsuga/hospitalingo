@@ -14,7 +14,7 @@ async function loadWorker() {
 const context = { waitUntil() {}, passThroughOnException() {} };
 const assets = { fetch: async () => new Response("Not found", { status: 404 }) };
 
-test("renders the Cloudflare-native HospitaLingo learning experience", async () => {
+test("renders the HospitaLingo account entry experience", async () => {
   const worker = await loadWorker();
   const response = await worker.fetch(
     new Request("http://localhost/", { headers: { accept: "text/html" } }),
@@ -27,11 +27,21 @@ test("renders the Cloudflare-native HospitaLingo learning experience", async () 
 
   const html = await response.text();
   assert.match(html, /HospitaLingo — English for Hotel &amp; Restaurant/i);
-  assert.match(html, /Handle an allergy request/i);
-  assert.match(html, /Certificate pathway/i);
-  assert.match(html, /Continue lesson/i);
-  assert.match(html, /Cloudflare AI/i);
+  assert.match(html, /Your own practice journey/i);
+  assert.match(html, /Preparing your learning space/i);
   assert.doesNotMatch(html, /class="sidebar"|codex-preview|react-loading-skeleton/i);
+});
+
+test("provides local demo identity and rejects missing production account storage", async () => {
+  const worker = await loadWorker();
+  const localStatus = await worker.fetch(new Request("http://localhost/api/auth/status"), { ASSETS: assets }, context);
+  assert.equal(localStatus.status, 200);
+  const localPayload = await localStatus.json();
+  assert.equal(localPayload.authenticated, true);
+  assert.equal(localPayload.user.role, "admin");
+
+  const productionStatus = await worker.fetch(new Request("https://hospitalingo.example/api/auth/status"), { ASSETS: assets }, context);
+  assert.equal(productionStatus.status, 503);
 });
 
 test("advertises Cloudflare AI status and keeps a safe assessment fallback", async () => {
@@ -109,6 +119,8 @@ test("keeps product metadata and Cloudflare persistence foundations", async () =
   assert.match(page, /25 Restaurant lessons/);
   assert.match(page, /confirmed transcript/i);
   assert.match(page, /Record answer/i);
+  assert.match(page, /Create the administrator/i);
+  assert.match(page, /Import up to 100 accounts/i);
   assert.match(layout, /HospitaLingo/);
   assert.doesNotMatch(packageJson, /@openai\/apps-sdk-ui/);
   assert.doesNotMatch(packageJson, /@modelcontextprotocol\/sdk/);

@@ -69,6 +69,16 @@ The interface remains conversation-led and visually familiar to users of modern 
 5. Deterministic safety rules validate the model output and can cap or reject an unsafe score.
 6. D1 records the confirmed result; raw microphone audio is not retained by default.
 
+### Identity and account isolation
+
+- HospitaLingo uses internal administrator-created accounts; public self-registration is disabled.
+- The first administrator is created through a one-time Cloudflare runtime setup token.
+- An administrator can create individual learners or import up to 100 accounts per batch.
+- Every learner receives an immutable user ID. Progress, attempts, transcripts, and certificate records are keyed to that ID, not to browser storage.
+- Passwords are stored only as salted PBKDF2 hashes. Session tokens are random, stored as hashes in D1, expire after seven days, and are delivered with HttpOnly, SameSite cookies.
+- New learners must replace their temporary password after first login.
+- Repeated failed logins trigger a temporary lock. AI and progress endpoints reject unauthenticated production requests.
+
 ## 6. Content grounding
 
 The source book *Hospitality Operations & Governance — Master Edition* is a controlled editorial source, not a document shown verbatim to learners.

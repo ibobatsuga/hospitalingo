@@ -19,7 +19,7 @@ type ProgressRow = {
 
 let schemaReady = false;
 
-async function ensureSchema(db: D1Database) {
+export async function ensureProgressSchema(db: D1Database) {
   if (schemaReady) return;
   await db.batch([
     db.prepare(`CREATE TABLE IF NOT EXISTS learner_progress (
@@ -55,7 +55,7 @@ function mapProgress(row: ProgressRow): LearnerProgress {
 }
 
 export async function getLearnerProgress(db: D1Database, learnerId: string): Promise<LearnerProgress> {
-  await ensureSchema(db);
+  await ensureProgressSchema(db);
   const existing = await db
     .prepare("SELECT learner_id, hotel_completed, restaurant_completed, current_lesson, updated_at FROM learner_progress WHERE learner_id = ?")
     .bind(learnerId)
@@ -116,4 +116,3 @@ export async function completeLearnerLesson(
     updatedAt: now,
   };
 }
-

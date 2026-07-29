@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, type ButtonHTMLAttributes, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, type ButtonHTMLAttributes, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getLesson, getTerms, scoreHospitalityResponse, type Domain } from "../lib/content";
 
 type Progress = {
@@ -12,6 +12,14 @@ type Progress = {
 
 type Step = "Vocabulary" | "Listening" | "Grammar" | "Speaking" | "Role Practice";
 type RecordingTarget = "speaking" | "role";
+type AuthMode = "loading" | "login" | "setup" | "change-password" | "authenticated" | "unavailable";
+type AppUser = {
+  id: string;
+  email: string;
+  displayName: string;
+  role: "admin" | "learner";
+  mustChangePassword: boolean;
+};
 type Assessment = ReturnType<typeof scoreHospitalityResponse> & {
   modelAnswer?: string;
   provider?: "cloudflare-workers-ai" | "rules-fallback";
@@ -26,7 +34,10 @@ const defaultProgress: Progress = {
 };
 
 export default function Home() {
-  const [view, setView] = useState<"today" | "lesson" | "progress">("today");
+  const [view, setView] = useState<"today" | "lesson" | "progress" | "users">("today");
+  const [authMode, setAuthMode] = useState<AuthMode>("loading");
+  const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
+  const [setupAvailable, setSetupAvailable] = useState(false);
   const [progress, setProgress] = useState<Progress>(defaultProgress);
   const [domain, setDomain] = useState<Domain>("restaurant");
   const [stepIndex, setStepIndex] = useState(0);
@@ -56,19 +67,55 @@ export default function Home() {
   const totalCompleted = progress.hotelCompleted + progress.restaurantCompleted;
   const completionPercent = Math.min(100, Math.round((totalCompleted / 50) * 100));
 
-  useEffect(() => {
-    fetch("/api/progress")
+  const loadProgress = useCallback(async () => {
+    return fetch("/api/progress")
       .then((response) => (response.ok ? response.json() : Promise.reject()))
       .then((data: Progress) => {
         setProgress(data);
         setDomain(data.hotelCompleted <= data.restaurantCompleted ? "hotel" : "restaurant");
       })
-      .catch(() => setNotice("Demo progress is active. Your hosted account will sync automatically."));
+      .catch(() => setNotice("Your learning record could not be loaded. Please refresh and try again."));
+  }, []);
+
+  const refreshAuth = useCallback(async () => {
+    try {
+      const response = await fetch("/api/auth/status", { headers: { accept: "application/json" } });
+      if (!response.ok) throw new Error("Account service unavailable");
+      const data = (await response.json()) as {
+        authenticated: boolean;
+        user?: AppUser | null;
+        setupRequired?: boolean;
+        setupAvailable?: boolean;
+      };
+      setSetupAvailable(Boolean(data.setupAvailable));
+      if (data.authenticated && data.user) {
+        setCurrentUser(data.user);
+        setAuthMode(data.user.mustChangePassword ? "change-password" : "authenticated");
+        if (!data.user.mustChangePassword) await loadProgress();
+      } else {
+        setCurrentUser(null);
+        setAuthMode(data.setupRequired ? "setup" : "login");
+      }
+    } catch {
+      setAuthMode("unavailable");
+    }
+  }, [loadProgress]);
+
+  useEffect(() => {
+    const authTimer = window.setTimeout(() => { void refreshAuth(); }, 0);
     fetch("/api/ai-status")
       .then((response) => response.json())
       .then((data: { available?: boolean }) => setAiAvailable(Boolean(data.available)))
       .catch(() => setAiAvailable(false));
-  }, []);
+    return () => window.clearTimeout(authTimer);
+  }, [refreshAuth]);
+
+  async function signOut() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    setCurrentUser(null);
+    setView("today");
+    setAuthMode("login");
+  }
 
   function resetLesson(nextDomain = domain) {
     setDomain(nextDomain);
@@ -277,6 +324,18 @@ export default function Home() {
     setComposer("");
   }
 
+  if (authMode === "loading") return <AuthShell><div className="auth-loading">Preparing your learning space…</div></AuthShell>;
+  if (authMode === "unavailable") {
+    return <AuthShell><AuthMessage title="Account service unavailable" copy="HospitaLingo could not connect to its account database. Please try again shortly." /></AuthShell>;
+  }
+  if (authMode === "setup") {
+    return <SetupScreen setupAvailable={setupAvailable} onComplete={refreshAuth} />;
+  }
+  if (authMode === "login") return <LoginScreen onComplete={refreshAuth} />;
+  if (authMode === "change-password" && currentUser) {
+    return <ChangePasswordScreen user={currentUser} onComplete={refreshAuth} />;
+  }
+
   return (
     <main className="app-frame">
       <header className="app-header">
@@ -287,9 +346,18 @@ export default function Home() {
             <small>English for Hotel &amp; Restaurant</small>
           </span>
         </button>
-        <Badge color={aiAvailable ? "success" : "secondary"} variant="soft" pill>
-          {aiAvailable ? "Cloudflare AI connected" : "Cloudflare AI preview"}
-        </Badge>
+        <div className="header-actions">
+          {currentUser?.role === "admin" && (
+            <button className="text-action" onClick={() => setView("users")}>Manage accounts</button>
+          )}
+          <Badge color={aiAvailable ? "success" : "secondary"} variant="soft" pill>
+            {aiAvailable ? "Cloudflare AI connected" : "Cloudflare AI preview"}
+          </Badge>
+          <div className="user-menu">
+            <span>{currentUser?.displayName}</span>
+            <button className="text-action" onClick={signOut}>Sign out</button>
+          </div>
+        </div>
       </header>
 
       <section className="conversation" aria-live="polite">
@@ -608,6 +676,10 @@ export default function Home() {
             </div>
           </section>
         )}
+
+        {view === "users" && currentUser?.role === "admin" && (
+          <AccountManager onClose={() => setView("today")} />
+        )}
       </section>
 
       <form className="preview-composer" onSubmit={handleComposer}>
@@ -624,6 +696,268 @@ export default function Home() {
           <small>Standalone HospitaLingo · AI and speech powered by Cloudflare</small>
         </form>
     </main>
+  );
+}
+
+function AuthShell({ children }: { children: ReactNode }) {
+  return (
+    <main className="auth-page">
+      <section className="auth-brand">
+        <span className="auth-mark">H</span>
+        <p className="eyebrow">ENGLISH FOR HOSPITALITY</p>
+        <h1>Your own practice journey.</h1>
+        <p>Build practical English confidence for hotel and restaurant service, one confirmed response at a time.</p>
+        <div className="auth-pill-row">
+          <span>Vocabulary</span><span>Listening</span><span>Grammar</span><span>Speaking</span><span>Role Practice</span>
+        </div>
+      </section>
+      <section className="auth-card">{children}</section>
+    </main>
+  );
+}
+
+function AuthMessage({ title, copy }: { title: string; copy: string }) {
+  return <div className="auth-message"><h2>{title}</h2><p>{copy}</p></div>;
+}
+
+function LoginScreen({ onComplete }: { onComplete: () => Promise<void> }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setLoading(true);
+    setError("");
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(data.error || "Sign in failed.");
+      await onComplete();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Sign in failed.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <AuthShell>
+      <form className="auth-form" onSubmit={submit}>
+        <div><p className="eyebrow">WELCOME BACK</p><h2>Sign in to HospitaLingo</h2><p>Your lessons, attempts, and certificate progress stay with this account.</p></div>
+        <label><span>Email</span><input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
+        <label><span>Password</span><input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
+        {error && <p className="auth-error" role="alert">{error}</p>}
+        <Button type="submit" color="primary" size="lg" loading={loading} disabled={loading}>Sign in</Button>
+        <small>Accounts are created by the HospitaLingo administrator. Public registration is disabled.</small>
+      </form>
+    </AuthShell>
+  );
+}
+
+function SetupScreen({ setupAvailable, onComplete }: { setupAvailable: boolean; onComplete: () => Promise<void> }) {
+  const [displayName, setDisplayName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [setupToken, setSetupToken] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setLoading(true);
+    setError("");
+    try {
+      const response = await fetch("/api/auth/setup", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ displayName, email, password, setupToken }),
+      });
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(data.error || "Setup failed.");
+      await onComplete();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Setup failed.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <AuthShell>
+      <form className="auth-form" onSubmit={submit}>
+        <div><p className="eyebrow">ONE-TIME SETUP</p><h2>Create the administrator</h2><p>This first account can create and review learner accounts.</p></div>
+        {!setupAvailable && <p className="auth-warning">Add the secret <strong>HOSPITALINGO_SETUP_TOKEN</strong> in Cloudflare before continuing.</p>}
+        <label><span>Your name</span><input autoComplete="name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} required /></label>
+        <label><span>Admin email</span><input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
+        <label><span>Admin password</span><input type="password" autoComplete="new-password" minLength={10} value={password} onChange={(event) => setPassword(event.target.value)} required /><small>At least 10 characters with a letter and a number.</small></label>
+        <label><span>Cloudflare setup token</span><input type="password" value={setupToken} onChange={(event) => setSetupToken(event.target.value)} required /></label>
+        {error && <p className="auth-error" role="alert">{error}</p>}
+        <Button type="submit" color="primary" size="lg" loading={loading} disabled={loading || !setupAvailable}>Create administrator</Button>
+      </form>
+    </AuthShell>
+  );
+}
+
+function ChangePasswordScreen({ user, onComplete }: { user: AppUser; onComplete: () => Promise<void> }) {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setLoading(true);
+    setError("");
+    try {
+      const response = await fetch("/api/auth/change-password", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(data.error || "Password could not be changed.");
+      await onComplete();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Password could not be changed.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <AuthShell>
+      <form className="auth-form" onSubmit={submit}>
+        <div><p className="eyebrow">SECURE YOUR ACCOUNT</p><h2>Choose your own password</h2><p>Hi {user.displayName}. Replace the temporary password before starting your journey.</p></div>
+        <label><span>Temporary password</span><input type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required /></label>
+        <label><span>New password</span><input type="password" autoComplete="new-password" minLength={10} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} required /><small>At least 10 characters with a letter and a number.</small></label>
+        {error && <p className="auth-error" role="alert">{error}</p>}
+        <Button type="submit" color="primary" size="lg" loading={loading} disabled={loading}>Save new password</Button>
+      </form>
+    </AuthShell>
+  );
+}
+
+type ManagedUser = {
+  id: string;
+  email: string;
+  display_name: string;
+  role: "admin" | "learner";
+  status: string;
+  must_change_password: number;
+  hotel_completed: number;
+  restaurant_completed: number;
+  last_login_at: string | null;
+};
+
+async function fetchManagedUsers() {
+  const response = await fetch("/api/admin/users");
+  if (!response.ok) throw new Error("Accounts could not be loaded.");
+  const data = (await response.json()) as { users: ManagedUser[] };
+  return data.users;
+}
+
+function AccountManager({ onClose }: { onClose: () => void }) {
+  const [users, setUsers] = useState<ManagedUser[]>([]);
+  const [displayName, setDisplayName] = useState("");
+  const [email, setEmail] = useState("");
+  const [temporaryPassword, setTemporaryPassword] = useState("");
+  const [bulkText, setBulkText] = useState("");
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    fetchManagedUsers()
+      .then((result) => { if (active) setUsers(result); })
+      .catch((error) => { if (active) setMessage(error instanceof Error ? error.message : "Accounts could not be loaded."); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, []);
+
+  function generatePassword() {
+    const value = `HL-${crypto.randomUUID().slice(0, 8)}-9a`;
+    setTemporaryPassword(value);
+  }
+
+  async function createAccounts(accounts: Array<{ displayName: string; email: string; temporaryPassword: string }>) {
+    setLoading(true);
+    setMessage("");
+    try {
+      const response = await fetch("/api/admin/users", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ users: accounts }),
+      });
+      const data = (await response.json()) as { created?: string[]; errors?: Array<{ email: string; error: string }>; error?: string };
+      if (!response.ok) throw new Error(data.error || "Accounts could not be created.");
+      setMessage(`${data.created?.length ?? 0} account(s) created${data.errors?.length ? `; ${data.errors.length} skipped` : ""}.`);
+      setUsers(await fetchManagedUsers());
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Accounts could not be created.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function createOne(event: FormEvent) {
+    event.preventDefault();
+    await createAccounts([{ displayName, email, temporaryPassword }]);
+    setDisplayName("");
+    setEmail("");
+    setTemporaryPassword("");
+  }
+
+  async function importBulk() {
+    const accounts = bulkText
+      .split(/\r?\n/)
+      .map((line) => line.split(",").map((value) => value.trim()))
+      .filter((parts) => parts.length >= 3 && parts[1].includes("@"))
+      .slice(0, 100)
+      .map(([name, accountEmail, password]) => ({ displayName: name, email: accountEmail, temporaryPassword: password }));
+    if (!accounts.length) {
+      setMessage("Use one account per line: Name,email,password");
+      return;
+    }
+    await createAccounts(accounts);
+    setBulkText("");
+  }
+
+  return (
+    <section className="surface account-surface" aria-labelledby="account-title">
+      <div className="surface-topline"><Badge color="info" variant="soft" pill>{users.length}/500 accounts</Badge><button className="text-action" onClick={onClose}>Close</button></div>
+      <div className="account-heading"><div><p className="eyebrow">ADMINISTRATION</p><h1 id="account-title">Learner accounts</h1><p>Each learner receives a private journey, transcript history, progress, and certificate pathway.</p></div></div>
+      <form className="account-create" onSubmit={createOne}>
+        <label><span>Name</span><input value={displayName} onChange={(event) => setDisplayName(event.target.value)} required /></label>
+        <label><span>Email</span><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
+        <label className="password-create"><span>Temporary password</span><div><input value={temporaryPassword} onChange={(event) => setTemporaryPassword(event.target.value)} minLength={10} required /><button type="button" className="text-action" onClick={generatePassword}>Generate</button></div></label>
+        <Button type="submit" color="primary" loading={loading}>Create account</Button>
+      </form>
+      <details className="bulk-import">
+        <summary>Import up to 100 accounts</summary>
+        <p>Paste one account per line using: <strong>Name,email,password</strong></p>
+        <textarea rows={5} value={bulkText} onChange={(event) => setBulkText(event.target.value)} placeholder={'Ayu,ayu@example.com,Welcome2026!\nBima,bima@example.com,Welcome2026!'} />
+        <Button type="button" color="secondary" variant="outline" onClick={importBulk} loading={loading}>Import accounts</Button>
+      </details>
+      {message && <p className="account-message" role="status">{message}</p>}
+      <div className="account-table-wrap">
+        <table className="account-table">
+          <thead><tr><th>Learner</th><th>Role</th><th>Hotel</th><th>Restaurant</th><th>Account</th></tr></thead>
+          <tbody>{users.map((user) => (
+            <tr key={user.id}>
+              <td><strong>{user.display_name}</strong><small>{user.email}</small></td>
+              <td>{user.role}</td><td>{user.hotel_completed}/25</td><td>{user.restaurant_completed}/25</td>
+              <td>{user.must_change_password ? "Temporary password" : user.last_login_at ? "Active" : "Invited"}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 

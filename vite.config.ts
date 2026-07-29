@@ -20,7 +20,11 @@ const workerBindingConfig = {
   name: "hospitalingo",
   main: "./worker/index.ts",
   compatibility_flags: ["nodejs_compat"],
-  ai: { binding: "AI" },
+  vars:
+    !isWorkersBuild && process.env.HOSPITALINGO_SETUP_TOKEN
+      ? { HOSPITALINGO_SETUP_TOKEN: process.env.HOSPITALINGO_SETUP_TOKEN }
+      : {},
+  ai: isWorkersBuild ? { binding: "AI" } : undefined,
   d1_databases: d1
     ? isWorkersBuild
       ? [{ binding: d1 }]

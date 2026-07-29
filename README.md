@@ -14,6 +14,9 @@ HospitaLingo is a standalone English learning app for hotel and restaurant work.
 - R2 content storage binding for approved book adaptations and lesson audio
 - Deterministic certificate and safety rules, independent from model output
 - Rules-based fallback so core lessons remain usable during an AI outage
+- Internal email/password accounts with secure server sessions
+- Separate D1-backed progress and certificate journey for every learner
+- Administrator account creation and CSV import for up to 100 learners per batch
 
 ## Run locally
 
@@ -32,6 +35,15 @@ The Worker supports either a native Workers AI binding named `AI` or these owner
 - `CLOUDFLARE_AI_TOKEN`
 
 These values belong to the HospitaLingo deployment. They are never requested from learners or exposed to the browser. Without either configuration, the app clearly reports preview mode, keeps deterministic safety assessment available, and disables speech transcription.
+
+## First administrator setup
+
+1. In Cloudflare, open the `hospitalingo` Worker and add an encrypted runtime secret named `HOSPITALINGO_SETUP_TOKEN`.
+2. Open the deployed app. When the D1 account database is empty, HospitaLingo shows the one-time administrator setup page.
+3. Enter the same setup token, the administrator email, and a strong password.
+4. After setup, use **Manage accounts** to create learners individually or paste up to 100 `Name,email,password` rows per import.
+
+Learner passwords are PBKDF2-hashed with unique salts. Browser sessions use random tokens stored only as hashes in D1 and sent through HttpOnly, SameSite cookies. Five failed logins temporarily lock that email/IP combination for 15 minutes. Public self-registration is disabled.
 
 ## Validate
 
