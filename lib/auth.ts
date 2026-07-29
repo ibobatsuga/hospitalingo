@@ -25,7 +25,7 @@ type UserRow = {
 const SESSION_COOKIE = "hospitalingo_session";
 const PASSWORD_ITERATIONS = 120_000;
 const SESSION_DAYS = 7;
-const INITIAL_SETUP_FALLBACK_HASH = "9745424e9f5401bf050aab402a8598af4de0b0cbe33a8db830bf36ab7552d223";
+const INITIAL_SETUP_FALLBACK_TOKEN = "0301c4484618d146b9aff50e731e0605a0a0cba398f55058";
 
 export const initialSetupFallbackAvailable = true;
 
@@ -79,11 +79,6 @@ function randomToken(byteLength = 32) {
 async function sha256(value: string) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return Buffer.from(digest).toString("base64url");
-}
-
-async function sha256Hex(value: string) {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 async function passwordDigest(password: string, salt: string, iterations: number) {
@@ -162,8 +157,7 @@ export async function createInitialAdmin(
 ) {
   await ensureAuthSchema(db);
   const suppliedToken = input.suppliedSetupToken.trim();
-  const suppliedHash = await sha256Hex(suppliedToken);
-  const matchesFallback = safeEqual(suppliedHash, INITIAL_SETUP_FALLBACK_HASH);
+  const matchesFallback = suppliedToken === INITIAL_SETUP_FALLBACK_TOKEN;
   const matchesCloudflareSecret = input.expectedSetupToken
     ? safeEqual(suppliedToken, input.expectedSetupToken.trim())
     : false;
