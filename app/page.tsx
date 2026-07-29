@@ -1,13 +1,17 @@
 "use client";
 
 import { FormEvent, type ButtonHTMLAttributes, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getLesson, getTerms, scoreHospitalityResponse, type Domain } from "../lib/content";
+import { getLesson, getTerms, scoreHospitalityResponse, type Domain, type HospitalityTerm } from "../lib/content";
 
 type Progress = {
   hotelCompleted: number;
   restaurantCompleted: number;
   currentLesson: number;
   certificateEligible: boolean;
+  certificateStatus?: "locked" | "pending" | "approved" | "expired";
+  certificateId?: string;
+  certificateIssuedAt?: string;
+  certificateExpiresAt?: string;
 };
 
 type Step = "Vocabulary" | "Listening" | "Grammar" | "Speaking" | "Role Practice";
@@ -34,7 +38,7 @@ const defaultProgress: Progress = {
 };
 
 export default function Home() {
-  const [view, setView] = useState<"today" | "lesson" | "talk" | "progress" | "users">("today");
+  const [view, setView] = useState<"today" | "lesson" | "talk" | "glossary" | "progress" | "users">("today");
   const [authMode, setAuthMode] = useState<AuthMode>("loading");
   const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
   const [setupAvailable, setSetupAvailable] = useState(false);
@@ -64,7 +68,8 @@ export default function Home() {
   const recordingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const recordingClockRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const lesson = useMemo(() => getLesson(domain, progress.currentLesson), [domain, progress.currentLesson]);
+  const lessonNumber = domain === "hotel" ? progress.hotelCompleted + 1 : progress.restaurantCompleted + 26;
+  const lesson = useMemo(() => getLesson(domain, lessonNumber), [domain, lessonNumber]);
   const terms = useMemo(() => getTerms(lesson.termIds), [lesson.termIds]);
   const currentStep = steps[stepIndex];
   const totalCompleted = progress.hotelCompleted + progress.restaurantCompleted;
@@ -77,7 +82,11 @@ export default function Home() {
         setProgress(data);
         setDomain(data.hotelCompleted <= data.restaurantCompleted ? "hotel" : "restaurant");
       })
-      .catch(() => setNotice("Your learning record could not be loaded. Please refresh and try again."));
+      .catch(() => {
+        if (window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
+          setNotice("Your learning record could not be loaded. Please refresh and try again.");
+        }
+      });
   }, []);
 
   const refreshAuth = useCallback(async () => {
@@ -166,6 +175,7 @@ export default function Home() {
           domain,
           transcript: text,
           task,
+          lessonId: lesson.id,
           prompt: task === "speaking" ? lesson.speakingPrompt : lesson.roleScenario.guestMessage,
           safetyRule: lesson.roleScenario.safetyRule,
         }),
@@ -194,8 +204,8 @@ export default function Home() {
       const form = new FormData();
       form.append("audio", blob, blob.type.includes("mp4") ? "hospitalingo-recording.m4a" : "hospitalingo-recording.webm");
       form.append("domain", domain);
+      form.append("lessonId", lesson.id);
       form.append("prompt", target === "speaking" ? lesson.speakingPrompt : lesson.roleScenario.guestMessage);
-      form.append("terms", terms.map((term) => term.term).join(", "));
       const response = await fetch("/api/transcribe", { method: "POST", body: form });
       const payload = (await response.json()) as { text?: string; rawText?: string; normalized?: boolean; error?: string };
       if (!response.ok || !payload.text) throw new Error(payload.error || "No transcript returned.");
@@ -307,10 +317,12 @@ export default function Home() {
           domain,
           score: feedback.score,
           criticalError: feedback.criticalError,
+          transcript: roleResponse,
+          feedback,
         }),
       });
       if (response.ok) setProgress(await response.json());
-      else {
+      else if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
         setProgress((current) => {
           const hotelCompleted = Math.min(25, current.hotelCompleted + (domain === "hotel" ? 1 : 0));
           const restaurantCompleted = Math.min(25, current.restaurantCompleted + (domain === "restaurant" ? 1 : 0));
@@ -321,12 +333,14 @@ export default function Home() {
             certificateEligible: hotelCompleted >= 25 && restaurantCompleted >= 25,
           };
         });
+      } else {
+        const payload = (await response.json()) as { error?: string };
+        throw new Error(payload.error || "Your result could not be saved.");
       }
       setLessonComplete(true);
       setNotice("Lesson completed. Your confirmed transcript and result were recorded.");
-    } catch {
-      setNotice("Lesson completed in demo mode. Progress will sync when storage is available.");
-      setLessonComplete(true);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Your result could not be saved. Please try again.");
     } finally {
       setSaving(false);
     }
@@ -432,7 +446,7 @@ export default function Home() {
                 <button className="continue-card" type="button" onClick={() => resetLesson(domain)}>
                   <span className="continue-icon"><Icon name={domain === "hotel" ? "hotel" : "restaurant"} /></span>
                   <span><small>CONTINUE LEARNING</small><strong>{lesson.title}</strong><em>{lesson.subtitle}</em></span>
-                  <Badge color="success" variant="soft" pill>Lesson {Math.min(50, progress.currentLesson)}</Badge>
+                  <Badge color="success" variant="soft" pill>{domain === "hotel" ? "Hotel" : "Restaurant"} {lesson.trackNumber}/25</Badge>
                 </button>
               </article>
 
@@ -532,7 +546,7 @@ export default function Home() {
 
             <div className="lesson-heading">
               <div>
-                <p className="eyebrow">LESSON {Math.min(50, progress.currentLesson)} · {lesson.durationMinutes} MIN</p>
+                <p className="eyebrow">{domain.toUpperCase()} LESSON {lesson.trackNumber}/25 · {lesson.durationMinutes} MIN</p>
                 <h1 id="lesson-title">{lesson.title}</h1>
                 <p>{lesson.subtitle}</p>
               </div>
@@ -761,39 +775,11 @@ export default function Home() {
         )}
 
         {view === "progress" && (
-          <section className="surface certificate-surface" aria-labelledby="certificate-title">
-            <div className="surface-topline">
-              <Badge color={progress.certificateEligible ? "success" : "secondary"} variant="soft" pill>
-                {progress.certificateEligible ? "Eligible" : "In progress"}
-              </Badge>
-              <button className="text-action" onClick={() => setView("today")}>Close</button>
-            </div>
-            <p className="eyebrow">INTERNAL COMPETENCY CERTIFICATE</p>
-            <h1 id="certificate-title">Hospitality English Foundations</h1>
-            <p className="certificate-intro">Complete the balanced pathway, pass both final Role Practices, and receive approval from Bobi Agusta.</p>
-            <div className="certificate-meter">
-              <strong>{totalCompleted}<small>/50</small></strong>
-              <span>qualifying lessons</span>
-              <div className="progress-track"><span style={{ width: `${completionPercent}%` }} /></div>
-            </div>
-            <div className="requirement-list">
-              <Requirement label="Complete 25 Hotel lessons" value={`${progress.hotelCompleted}/25`} done={progress.hotelCompleted >= 25} />
-              <Requirement label="Complete 25 Restaurant lessons" value={`${progress.restaurantCompleted}/25`} done={progress.restaurantCompleted >= 25} />
-              <Requirement label="Pass Hotel final Role Practice" value="Locked" done={false} />
-              <Requirement label="Pass Restaurant final Role Practice" value="Locked" done={false} />
-              <Requirement label="Minimum final score 75" value="Pending" done={false} />
-              <Requirement label="Approval by Bobi Agusta" value="Pending" done={false} />
-            </div>
-            <div className="certificate-note">
-              <strong>Internal Use Only</strong>
-              <span>Valid for 365 days after approval. Transcript-only speaking is accepted; pronunciation and accent are not certified.</span>
-            </div>
-            <div className="surface-actions">
-              <Button color="primary" size="lg" onClick={() => resetLesson(progress.hotelCompleted <= progress.restaurantCompleted ? "hotel" : "restaurant")}>
-                Continue recommended lesson
-              </Button>
-            </div>
-          </section>
+          <ProgressDashboard progress={progress} totalCompleted={totalCompleted} completionPercent={completionPercent} onClose={() => setView("today")} onContinue={() => resetLesson(progress.hotelCompleted <= progress.restaurantCompleted ? "hotel" : "restaurant")} />
+        )}
+
+        {view === "glossary" && (
+          <GlossaryBrowser onClose={() => setView("today")} />
         )}
 
         {view === "users" && currentUser?.role === "admin" && (
@@ -805,11 +791,150 @@ export default function Home() {
         <button className={view === "today" ? "active" : ""} type="button" onClick={() => setView("today")}><Icon name="home" /><span>Home</span></button>
         <button className={view === "lesson" ? "active" : ""} type="button" onClick={() => resetLesson(domain)}><Icon name="book" /><span>Learn</span></button>
         <button className="nav-talk" type="button" onClick={() => setView("talk")}><Icon name="mic" /><span>Talk</span></button>
+        <button className={view === "glossary" ? "active" : ""} type="button" onClick={() => setView("glossary")}><Icon name="search" /><span>Glossary</span></button>
         <button className={view === "progress" ? "active" : ""} type="button" onClick={() => setView("progress")}><Icon name="chart" /><span>Progress</span></button>
-        <button className={view === "users" ? "active" : ""} type="button" onClick={() => currentUser?.role === "admin" ? setView("users") : setView("progress")}><Icon name="user" /><span>{currentUser?.role === "admin" ? "Admin" : "Profile"}</span></button>
       </nav>}
     </main>
   );
+}
+
+type HistoryAttempt = {
+  id: string;
+  lesson_id: string;
+  domain: Domain;
+  step: "speaking" | "role_practice";
+  transcript: string;
+  score: number;
+  critical_error: number;
+  created_at: string;
+};
+
+function ProgressDashboard({
+  progress,
+  totalCompleted,
+  completionPercent,
+  onClose,
+  onContinue,
+}: {
+  progress: Progress;
+  totalCompleted: number;
+  completionPercent: number;
+  onClose: () => void;
+  onContinue: () => void;
+}) {
+  const [history, setHistory] = useState<HistoryAttempt[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/history?limit=20")
+      .then((response) => response.ok ? response.json() : Promise.reject())
+      .then((data: { attempts?: HistoryAttempt[] }) => { if (active) setHistory(data.attempts ?? []); })
+      .catch(() => undefined)
+      .finally(() => { if (active) setHistoryLoading(false); });
+    return () => { active = false; };
+  }, []);
+
+  const status = progress.certificateStatus ?? (progress.certificateEligible ? "pending" : "locked");
+  const statusLabel = status === "approved" ? "Certificate issued" : status === "pending" ? "Awaiting approval" : status === "expired" ? "Reassessment due" : "In progress";
+  return (
+    <section className="surface certificate-surface" aria-labelledby="certificate-title">
+      <div className="surface-topline">
+        <Badge color={status === "approved" ? "success" : "secondary"} variant="soft" pill>{statusLabel}</Badge>
+        <button className="text-action" onClick={onClose}>Close</button>
+      </div>
+      <p className="eyebrow">INTERNAL COMPETENCY CERTIFICATE</p>
+      <h1 id="certificate-title">Hospitality English Foundations</h1>
+      <p className="certificate-intro">Complete all 50 unique lessons. HospitaLingo then sends one certificate request to the administrator for approval.</p>
+      <div className="certificate-meter">
+        <strong>{totalCompleted}<small>/50</small></strong>
+        <span>unique qualifying lessons</span>
+        <div className="progress-track"><span style={{ width: `${completionPercent}%` }} /></div>
+      </div>
+      <div className="requirement-list">
+        <Requirement label="Complete 25 Hotel lessons" value={`${progress.hotelCompleted}/25`} done={progress.hotelCompleted >= 25} />
+        <Requirement label="Complete 25 Restaurant lessons" value={`${progress.restaurantCompleted}/25`} done={progress.restaurantCompleted >= 25} />
+        <Requirement label="Pass every Role Practice at 75+" value={totalCompleted === 50 ? "Passed" : "In progress"} done={totalCompleted === 50} />
+        <Requirement label="Approval by Bobi Agusta" value={status === "approved" ? "Approved" : status === "pending" ? "Pending" : "Locked"} done={status === "approved"} />
+      </div>
+      {status === "approved" && (
+        <><article className="issued-certificate">
+          <span className="app-mark">H</span><div><small>CERTIFICATE ID</small><strong>{progress.certificateId}</strong>
+          <p>Issued {formatDate(progress.certificateIssuedAt)} · Valid until {formatDate(progress.certificateExpiresAt)}</p></div>
+        </article><button type="button" className="text-action certificate-print" onClick={() => window.print()}>Print or save certificate as PDF</button></>
+      )}
+      <div className="certificate-note"><strong>Internal Use Only</strong><span>Valid for 365 days after approval. Transcript-only speaking is accepted; pronunciation and accent are not certified.</span></div>
+      <section className="history-section" aria-labelledby="history-title">
+        <div className="section-heading"><div><p id="history-title">Practice history</p><span>Confirmed transcripts are private to this account</span></div></div>
+        {historyLoading ? <p className="empty-state">Loading your attempts…</p> : history.length ? (
+          <div className="history-list">{history.map((attempt) => (
+            <details key={attempt.id} className="history-item">
+              <summary><span><strong>{lessonTitle(attempt.lesson_id)}</strong><small>{attempt.step === "role_practice" ? "Role Practice" : "Speaking"} · {formatDate(attempt.created_at)}</small></span><b>{attempt.score}</b></summary>
+              <p>“{attempt.transcript}”</p>
+            </details>
+          ))}</div>
+        ) : <p className="empty-state">No assessed transcript yet. Complete Speaking or Role Practice to build your history.</p>}
+      </section>
+      <div className="surface-actions"><Button color="primary" size="lg" onClick={onContinue}>Continue recommended lesson</Button></div>
+    </section>
+  );
+}
+
+function GlossaryBrowser({ onClose }: { onClose: () => void }) {
+  const [query, setQuery] = useState("");
+  const [department, setDepartment] = useState("");
+  const [entries, setEntries] = useState<HospitalityTerm[]>([]);
+  const [departments, setDepartments] = useState<string[]>([]);
+  const [total, setTotal] = useState(436);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async (nextQuery = query, nextDepartment = department) => {
+    setLoading(true);
+    try {
+      const parameters = new URLSearchParams({ q: nextQuery, department: nextDepartment, limit: "60" });
+      const response = await fetch(`/api/glossary?${parameters}`);
+      if (!response.ok) throw new Error();
+      const data = (await response.json()) as { entries: HospitalityTerm[]; departments: string[]; total: number };
+      setEntries(data.entries); setDepartments(data.departments); setTotal(data.total);
+    } finally { setLoading(false); }
+  }, [department, query]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void load("", ""); }, 0);
+    return () => window.clearTimeout(timer);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function search(event: FormEvent) { event.preventDefault(); void load(); }
+  return (
+    <section className="surface glossary-surface" aria-labelledby="glossary-title">
+      <div className="surface-topline"><Badge color="info" variant="soft" pill>436 audited terms</Badge><button className="text-action" onClick={onClose}>Close</button></div>
+      <p className="eyebrow">HOSPITALITY MASTER EDITION</p>
+      <h1 id="glossary-title">Operational glossary</h1>
+      <p className="certificate-intro">Search the adapted terminology used by lessons, transcription correction, and AI assessment.</p>
+      <form className="glossary-search" onSubmit={search}>
+        <label><span>Search terminology</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Try: reservation, BEO, food safety…" /></label>
+        <label><span>Department</span><select value={department} onChange={(event) => { setDepartment(event.target.value); void load(query, event.target.value); }}><option value="">All departments</option>{departments.map((item) => <option key={item}>{item}</option>)}</select></label>
+        <Button type="submit" color="primary">Search</Button>
+      </form>
+      <p className="glossary-count">{loading ? "Searching…" : `${total} matching term${total === 1 ? "" : "s"} · showing ${entries.length}`}</p>
+      <div className="glossary-grid">{entries.map((entry) => (
+        <details className="glossary-card" key={entry.id}>
+          <summary><span><small>{entry.department}</small><strong>{entry.term}</strong><em>{entry.subcategory}</em></span><span>+</span></summary>
+          <div><p>{entry.meaning}</p><h3>Operational use</h3><p>{entry.workplaceUse}</p>{entry.controlNote && <><h3>Control note</h3><p>{entry.controlNote}</p></>}<blockquote>“{entry.example}”</blockquote><small>Adapted source · Master Edition p. {entry.sourcePage} · Entry {entry.sourceNumber}</small></div>
+        </details>
+      ))}</div>
+      {!loading && !entries.length && <p className="empty-state">No term matched that search. Try a shorter phrase or all departments.</p>}
+    </section>
+  );
+}
+
+function lessonTitle(id: string) {
+  return id.endsWith("free-practice") ? "Free AI practice" : id.split("-").slice(3).join(" ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function formatDate(value?: string) {
+  if (!value) return "—";
+  return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric" }).format(new Date(value));
 }
 
 function initials(name?: string) {
@@ -1002,6 +1127,19 @@ type ManagedUser = {
   last_login_at: string | null;
 };
 
+type ManagedCertificate = {
+  id: string;
+  learner_id: string;
+  status: "pending" | "approved" | "expired";
+  requested_at: string;
+  issued_at: string | null;
+  expires_at: string | null;
+  display_name: string;
+  email: string;
+  hotel_completed: number;
+  restaurant_completed: number;
+};
+
 async function fetchManagedUsers() {
   const response = await fetch("/api/admin/users");
   if (!response.ok) throw new Error("Accounts could not be loaded.");
@@ -1009,8 +1147,16 @@ async function fetchManagedUsers() {
   return data.users;
 }
 
+async function fetchManagedCertificates() {
+  const response = await fetch("/api/admin/certificates");
+  if (!response.ok) throw new Error("Certificate requests could not be loaded.");
+  const data = (await response.json()) as { certificates: ManagedCertificate[] };
+  return data.certificates;
+}
+
 function AccountManager({ onClose }: { onClose: () => void }) {
   const [users, setUsers] = useState<ManagedUser[]>([]);
+  const [certificates, setCertificates] = useState<ManagedCertificate[]>([]);
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
   const [temporaryPassword, setTemporaryPassword] = useState("");
@@ -1020,8 +1166,8 @@ function AccountManager({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     let active = true;
-    fetchManagedUsers()
-      .then((result) => { if (active) setUsers(result); })
+    Promise.all([fetchManagedUsers(), fetchManagedCertificates()])
+      .then(([userResult, certificateResult]) => { if (active) { setUsers(userResult); setCertificates(certificateResult); } })
       .catch((error) => { if (active) setMessage(error instanceof Error ? error.message : "Accounts could not be loaded."); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
@@ -1075,6 +1221,18 @@ function AccountManager({ onClose }: { onClose: () => void }) {
     setBulkText("");
   }
 
+  async function approve(id: string) {
+    setLoading(true); setMessage("");
+    try {
+      const response = await fetch("/api/admin/certificates", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ certificateId: id, action: "approve" }) });
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(data.error || "Certificate could not be approved.");
+      setCertificates(await fetchManagedCertificates());
+      setMessage("Certificate approved and valid for 365 days.");
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Certificate could not be approved."); }
+    finally { setLoading(false); }
+  }
+
   return (
     <section className="surface account-surface" aria-labelledby="account-title">
       <div className="surface-topline"><Badge color="info" variant="soft" pill>{users.length}/500 accounts</Badge><button className="text-action" onClick={onClose}>Close</button></div>
@@ -1092,6 +1250,10 @@ function AccountManager({ onClose }: { onClose: () => void }) {
         <Button type="button" color="secondary" variant="outline" onClick={importBulk} loading={loading}>Import accounts</Button>
       </details>
       {message && <p className="account-message" role="status">{message}</p>}
+      <section className="certificate-approvals">
+        <div className="section-heading"><div><p>Certificate approvals</p><span>Issued certificates remain valid for 365 days</span></div><Badge color="secondary" variant="soft" pill>{certificates.filter((item) => item.status === "pending").length} pending</Badge></div>
+        {certificates.length ? <div className="account-table-wrap"><table className="account-table"><thead><tr><th>Learner</th><th>Completion</th><th>Status</th><th>Action</th></tr></thead><tbody>{certificates.map((certificate) => <tr key={certificate.id}><td><strong>{certificate.display_name}</strong><small>{certificate.email}</small></td><td>{certificate.hotel_completed}/25 H · {certificate.restaurant_completed}/25 R</td><td>{certificate.status}</td><td>{certificate.status === "pending" ? <Button type="button" color="primary" onClick={() => approve(certificate.id)} disabled={loading}>Approve</Button> : certificate.expires_at ? `Until ${formatDate(certificate.expires_at)}` : "—"}</td></tr>)}</tbody></table></div> : <p className="empty-state">No learner has completed all 50 lessons yet.</p>}
+      </section>
       <div className="account-table-wrap">
         <table className="account-table">
           <thead><tr><th>Learner</th><th>Role</th><th>Hotel</th><th>Restaurant</th><th>Account</th></tr></thead>

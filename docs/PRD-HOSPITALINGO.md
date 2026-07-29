@@ -55,9 +55,9 @@ The interface remains conversation-led and visually familiar to users of modern 
 - **Cloudflare Workers**: API orchestration, validation, access checks, lesson logic, and rate limits.
 - **Workers AI text model**: speaking feedback, natural model answers, role character, and adaptive hints.
 - **Workers AI Whisper**: speech-to-text for recorded answers.
-- **Vectorize**: semantic retrieval over approved terminology and adapted book content.
+- **Build-time glossary index**: exact and partial retrieval over 436 approved terminology entries. Vectorize is deferred until content volume or search-quality benchmarks justify it.
 - **D1**: learner identity mapping, attempts, progress, scores, approvals, and certificate records.
-- **R2**: approved source files, adapted content artifacts, lesson audio, and generated certificate files.
+- **Git content storage / optional R2**: the canonical Markdown and generated compact artifact are versioned with the application; R2 is optional for the private PDF archive, lesson audio, or generated certificate files.
 - **AI Gateway**: usage visibility, caching where safe, rate limits, and cost controls.
 
 ### Request flow
@@ -90,8 +90,8 @@ Content pipeline:
 3. Adapt definitions and examples for English learning.
 4. Review and approve every published content unit.
 5. Store canonical content and provenance metadata.
-6. Create embeddings for approved units only.
-7. Retrieve a small set of relevant units for each AI request.
+6. Generate a compact, uniquely keyed glossary artifact from all 436 body entries.
+7. Retrieve only the three approved units attached to the active lesson for each AI request.
 
 The model must not invent a source citation or treat unapproved raw extraction as final learning material.
 
@@ -174,5 +174,5 @@ The certificate is valid for 365 days from approval. Reassessment opens 30 days 
 - The product exposes direct Cloudflare AI assessment and transcription routes.
 - Recording works in supported browsers and typed transcripts remain available.
 - AI unavailability never bypasses safety or certificate rules.
-- D1 remains the authoritative progress store and R2 is reserved for content/audio blobs.
+- D1 remains the authoritative account, transcript, completion, and certificate store; source content is versioned and R2 remains optional for private blobs.
 - The UI identifies whether Cloudflare AI is connected or running in preview fallback mode.

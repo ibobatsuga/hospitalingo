@@ -332,6 +332,60 @@ button { color: inherit; }
 .account-table td:first-child strong, .account-table td:first-child small { display: block; }
 .account-table td:first-child small { margin-top: 2px; color: var(--text-muted); font-size: 8px; }
 
+.glossary-surface { margin-bottom: 34px; }
+.glossary-surface > h1 { margin-bottom: 8px; font-size: clamp(30px, 5vw, 46px); letter-spacing: -1.6px; }
+.glossary-search { margin: 25px 0 10px; display: grid; grid-template-columns: minmax(220px, 1.6fr) minmax(180px, 1fr) auto; gap: 10px; align-items: end; }
+.glossary-search label { display: grid; gap: 6px; color: var(--text-muted); font-size: 9px; font-weight: 700; }
+.glossary-search input, .glossary-search select { width: 100%; min-height: 42px; padding: 0 12px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-subtle); color: var(--text); font: inherit; font-size: 11px; outline: 0; }
+.glossary-search input:focus, .glossary-search select:focus { border-color: var(--teal); box-shadow: 0 0 0 3px var(--teal-soft); }
+.glossary-count { margin: 14px 0; color: var(--text-muted); font-size: 10px; }
+.glossary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.glossary-card { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); overflow: hidden; }
+.glossary-card[open] { border-color: color-mix(in srgb, var(--teal) 45%, var(--line)); box-shadow: 0 9px 25px rgba(26, 89, 77, 0.08); }
+.glossary-card summary { min-height: 92px; padding: 15px; display: flex; justify-content: space-between; gap: 10px; cursor: pointer; list-style: none; }
+.glossary-card summary::-webkit-details-marker { display: none; }
+.glossary-card summary > span:first-child { display: grid; align-content: start; gap: 4px; }
+.glossary-card summary small { color: var(--teal); font-size: 7px; font-weight: 800; letter-spacing: .7px; }
+.glossary-card summary strong { font-size: 12px; line-height: 1.3; }
+.glossary-card summary em { color: var(--text-muted); font-size: 8px; font-style: normal; }
+.glossary-card summary > span:last-child { color: var(--teal); font-size: 20px; }
+.glossary-card[open] summary > span:last-child { transform: rotate(45deg); }
+.glossary-card > div { padding: 0 15px 16px; border-top: 1px solid var(--line); }
+.glossary-card p { color: var(--text-muted); font-size: 10px; line-height: 1.55; }
+.glossary-card h3 { margin: 14px 0 4px; font-size: 9px; text-transform: uppercase; letter-spacing: .8px; }
+.glossary-card blockquote { margin: 14px 0; padding: 10px 12px; border-left: 2px solid var(--gold); background: var(--surface-subtle); font-size: 10px; line-height: 1.5; }
+.glossary-card > div > small { color: var(--text-muted); font-size: 8px; }
+.empty-state { padding: 18px; border-radius: 12px; background: var(--surface-subtle); color: var(--text-muted); font-size: 10px; line-height: 1.5; }
+.history-section { margin-top: 28px; }
+.history-list { display: grid; gap: 8px; }
+.history-item { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.history-item summary { padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; list-style: none; }
+.history-item summary::-webkit-details-marker { display: none; }
+.history-item summary span { display: grid; gap: 3px; }
+.history-item summary strong { font-size: 10px; }
+.history-item summary small { color: var(--text-muted); font-size: 8px; }
+.history-item summary b { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; background: var(--success-soft); color: var(--success); font-size: 11px; }
+.history-item > p { margin: 0; padding: 13px 14px; border-top: 1px solid var(--line); color: var(--text-muted); font-size: 10px; line-height: 1.55; }
+.issued-certificate { margin-top: 18px; padding: 17px; display: flex; align-items: center; gap: 13px; border: 1px solid color-mix(in srgb, var(--success) 35%, var(--line)); border-radius: 14px; background: var(--success-soft); }
+.issued-certificate > div { display: grid; gap: 2px; }
+.issued-certificate small { color: var(--success); font-size: 7px; font-weight: 800; letter-spacing: 1px; }
+.issued-certificate strong { font-size: 13px; }
+.issued-certificate p { margin: 3px 0 0; color: var(--text-muted); font-size: 9px; }
+.certificate-approvals { margin-top: 23px; padding: 17px; border: 1px solid var(--line); border-radius: 15px; }
+.certificate-print { display: block; margin: 10px 0 0 auto; }
+
+@media (max-width: 720px) {
+  .glossary-search { grid-template-columns: 1fr; }
+  .glossary-grid { grid-template-columns: 1fr; }
+  .glossary-card summary { min-height: 82px; }
+}
+
+@media print {
+  .app-header, .assistant-turn, .bottom-nav, .surface-topline, .history-section, .surface-actions, .certificate-print { display: none !important; }
+  .app-frame, .conversation { width: 100%; min-height: 0; padding: 0; margin: 0; background: white; }
+  .certificate-surface { margin: 0; border: 0; box-shadow: none; }
+}
+
 .preview-composer { width: min(760px, calc(100% - 32px)); position: fixed; left: 50%; bottom: 15px; transform: translateX(-50%); z-index: 20; }
 .preview-composer > label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 .preview-composer > div { display: grid; grid-template-columns: 1fr 36px; gap: 8px; align-items: center; padding: 8px 9px 8px 16px; border: 1px solid var(--line); border-radius: 24px; background: var(--surface-raised); box-shadow: 0 12px 45px rgba(0, 0, 0, 0.12); }

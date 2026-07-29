@@ -1,4 +1,4 @@
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 export const appUsers = sqliteTable("app_users", {
   id: text("id").primaryKey(),
@@ -47,3 +47,43 @@ export const lessonAttempts = sqliteTable("lesson_attempts", {
   criticalError: integer("critical_error", { mode: "boolean" }).notNull().default(false),
   createdAt: text("created_at").notNull(),
 });
+
+export const stepAttempts = sqliteTable("step_attempts", {
+  id: text("id").primaryKey(),
+  learnerId: text("learner_id").notNull(),
+  lessonId: text("lesson_id").notNull(),
+  domain: text("domain", { enum: ["hotel", "restaurant"] }).notNull(),
+  step: text("step", { enum: ["speaking", "role_practice"] }).notNull(),
+  transcript: text("transcript").notNull(),
+  score: integer("score").notNull(),
+  criticalError: integer("critical_error", { mode: "boolean" }).notNull().default(false),
+  feedbackJson: text("feedback_json").notNull().default("{}"),
+  createdAt: text("created_at").notNull(),
+}, (table) => [index("step_attempts_learner_idx").on(table.learnerId, table.createdAt)]);
+
+export const lessonCompletions = sqliteTable("lesson_completions", {
+  learnerId: text("learner_id").notNull(),
+  lessonId: text("lesson_id").notNull(),
+  domain: text("domain", { enum: ["hotel", "restaurant"] }).notNull(),
+  bestScore: integer("best_score").notNull(),
+  completedAt: text("completed_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [primaryKey({ columns: [table.learnerId, table.lessonId] })]);
+
+export const certificates = sqliteTable("certificates", {
+  id: text("id").primaryKey(),
+  learnerId: text("learner_id").notNull().unique(),
+  status: text("status", { enum: ["pending", "approved", "expired"] }).notNull().default("pending"),
+  approvedBy: text("approved_by"),
+  requestedAt: text("requested_at").notNull(),
+  issuedAt: text("issued_at"),
+  expiresAt: text("expires_at"),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [index("certificates_status_idx").on(table.status, table.requestedAt)]);
+
+export const aiDailyUsage = sqliteTable("ai_daily_usage", {
+  learnerId: text("learner_id").notNull(),
+  usageDate: text("usage_date").notNull(),
+  assessments: integer("assessments").notNull().default(0),
+  transcriptions: integer("transcriptions").notNull().default(0),
+}, (table) => [primaryKey({ columns: [table.learnerId, table.usageDate] })]);

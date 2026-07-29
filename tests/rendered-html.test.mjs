@@ -90,8 +90,8 @@ test("uses contextual Cloudflare transcription and preserves the raw version", a
   const form = new FormData();
   form.append("audio", new File([new Uint8Array(1400)], "answer.webm", { type: "audio/webm" }));
   form.append("domain", "restaurant");
+  form.append("lessonId", "restaurant-05-keep-a-check-open");
   form.append("prompt", "Explain that the open check remains active.");
-  form.append("terms", "Open check, cover, void");
 
   const response = await worker.fetch(
     new Request("http://localhost/api/transcribe", { method: "POST", body: form }),
@@ -105,7 +105,7 @@ test("uses contextual Cloudflare transcription and preserves the raw version", a
   assert.equal(payload.normalized, true);
   assert.match(models[0].model, /whisper-large-v3-turbo/);
   assert.equal(models[0].input.language, "en");
-  assert.match(models[0].input.initial_prompt, /Open check/);
+  assert.match(models[0].input.initial_prompt, /OPEN CHECK/i);
 });
 
 test("keeps product metadata and Cloudflare persistence foundations", async () => {
@@ -153,4 +153,26 @@ test("preserves the complete audited hospitality terminology source", async () =
   ]) {
     assert.equal([...markdown.matchAll(new RegExp(`^### ${section}$`, "gm"))].length, 436);
   }
+});
+
+test("integrates all glossary entries into 50 balanced learning journeys", async () => {
+  const worker = await loadWorker();
+  const response = await worker.fetch(new Request("http://localhost/api/catalog"), { ASSETS: assets }, context);
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.lessons.length, 50);
+  assert.equal(payload.tracks.hotel, 25);
+  assert.equal(payload.tracks.restaurant, 25);
+  assert.equal(new Set(payload.lessons.map((lesson) => lesson.id)).size, 50);
+  assert.ok(payload.lessons.every((lesson) => lesson.termIds.length === 3));
+});
+
+test("serves authenticated glossary search with audited source metadata", async () => {
+  const worker = await loadWorker();
+  const response = await worker.fetch(new Request("http://localhost/api/glossary?q=food%20safety&limit=10"), { ASSETS: assets }, context);
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.auditedEntries, 436);
+  assert.equal(payload.source, "HOSPITALITY-MASTER.md");
+  assert.ok(payload.entries.some((entry) => /FOOD SAFETY/.test(entry.term)));
 });

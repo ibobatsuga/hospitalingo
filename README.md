@@ -9,13 +9,16 @@ HospitaLingo is a standalone English learning app for hotel and restaurant work.
 - In-app microphone recording and Cloudflare speech-to-text
 - Transcript confirmation before Cloudflare AI assessment
 - Operational safety checks for allergy and room-availability scenarios
-- Adapted terminology grounded in *Hospitality Operations & Governance - Master Edition*
+- Searchable 436-entry operational glossary grounded in *Hospitality Operations & Governance - Master Edition*
+- Selective glossary retrieval for every AI assessment and transcription request
 - D1-backed learner progress
 - R2 content storage binding for approved book adaptations and lesson audio
 - Deterministic certificate and safety rules, independent from model output
 - Rules-based fallback so core lessons remain usable during an AI outage
 - Internal email/password accounts with secure server sessions
-- Separate D1-backed progress and certificate journey for every learner
+- Separate D1-backed transcript history, unique lesson completion, progress, and certificate journey for every learner
+- One owner approval queue with certificates valid for 365 days
+- Free-tier guardrails: 30 AI assessments and 5 transcriptions per learner per day, with typed practice always available
 - Administrator account creation and CSV import for up to 100 learners per batch
 
 ## Run locally
@@ -25,7 +28,7 @@ npm install
 npm run dev
 ```
 
-The local browser preview uses a demo learner. Hosted internal users are identified by the hosting access layer. For a direct Cloudflare deployment, configure the equivalent server-side identity policy before production use.
+The local browser preview uses a demo administrator. Production uses HospitaLingo's internal invitation-only accounts stored in D1.
 
 ## Cloudflare AI configuration
 
@@ -58,10 +61,11 @@ The converted master terminology source is stored in `content/HOSPITALITY-MASTER
 
 ```bash
 HOSPITALITY_CONVERSION_DATE=YYYY-MM-DD node scripts/convert-hospitality-master.mjs
+npm run content:build
 ```
 
-The PDF metadata and table of contents declare 356 terms, while the document body contains 436 complete entries because source numbers 81-160 are used twice for different terminology sets. The converter preserves both sets and fails validation if entries or required sections are lost. Final numbering must be approved before importing the content into production D1.
+The PDF metadata and table of contents declare 356 terms, while the document body contains 436 complete entries because source numbers 81-160 are used twice for different terminology sets. The converter preserves both sets and fails validation if entries or required sections are lost. `content:build` creates a compact, reproducible application dataset with unique IDs, department metadata, adapted excerpts, control notes, and page provenance. The AI receives only the three lesson terms, never the 1.8 MB source document.
 
 The detailed product and architecture decisions live in `docs/PRD-HOSPITALINGO.md`.
 
-For Git-connected Cloudflare Workers builds, the MVP provisions D1 automatically and binds Workers AI as `AI`. R2 is intentionally not required during the initial deployment because the current learning flow does not persist source files or raw learner recordings. Enable and bind R2 as `CONTENT` when the approved content-ingestion phase begins.
+For Git-connected Cloudflare Workers builds, the app provisions D1 automatically and binds Workers AI as `AI`. The complete Markdown source and generated compact glossary are versioned in this private product repository; D1 stores learner-specific records. R2 remains optional for a private PDF archive or future generated audio, and raw learner recordings are deliberately not retained.

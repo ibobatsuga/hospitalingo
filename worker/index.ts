@@ -22,7 +22,17 @@ import {
   userCount,
   type AuthUser,
 } from "../lib/auth";
-import { completeLearnerLesson, ensureProgressSchema, getLearnerProgress } from "../lib/progress";
+import { getTerms, glossaryDepartments, hospitalityTerms, lessons, searchTerms } from "../lib/content";
+import {
+  approveCertificate,
+  completeLearnerLesson,
+  consumeDailyAiQuota,
+  ensureProgressSchema,
+  getLearnerHistory,
+  getLearnerProgress,
+  listCertificateRequests,
+  recordStepAttempt,
+} from "../lib/progress";
 
 interface Env {
   ASSETS: Fetcher;
@@ -51,12 +61,15 @@ const completionSchema = z.object({
   domain: z.enum(["hotel", "restaurant"]),
   score: z.number().int().min(0).max(100),
   criticalError: z.boolean().default(false),
+  transcript: z.string().trim().min(2).max(3000),
+  feedback: z.unknown().optional(),
 });
 
 const assessmentSchema = z.object({
   domain: z.enum(["hotel", "restaurant"]),
   transcript: z.string().trim().min(2).max(3000),
   task: z.enum(["speaking", "role_practice"]),
+  lessonId: z.string().min(1).max(120).optional(),
   prompt: z.string().max(1000).optional(),
   safetyRule: z.string().max(1000).optional(),
 });
@@ -90,6 +103,7 @@ const learnerAccountSchema = z.object({
 });
 
 const createLearnersSchema = z.object({ users: z.array(learnerAccountSchema).min(1).max(100) });
+const certificateActionSchema = z.object({ certificateId: z.string().min(4).max(80), action: z.literal("approve") });
 
 function localDemoUser(request: Request): AuthUser | null {
   const hostname = new URL(request.url).hostname;
@@ -231,16 +245,28 @@ async function handleProgressRequest(request: Request, env: Env) {
   if (request.method === "POST") {
     const parsed = completionSchema.safeParse(await request.json());
     if (!parsed.success) return Response.json({ error: "The lesson result is invalid." }, { status: 400 });
-    return Response.json(
-      await completeLearnerLesson(
+    const lesson = lessons.find((entry) => entry.id === parsed.data.lessonId);
+    if (!lesson || lesson.domain !== parsed.data.domain) return Response.json({ error: "The lesson context is invalid." }, { status: 400 });
+    try {
+      return Response.json(await completeLearnerLesson(
         env.DB,
         learnerId,
-        parsed.data.lessonId,
-        parsed.data.domain,
-        parsed.data.score,
-        parsed.data.criticalError,
-      ),
-    );
+        {
+          lessonId: parsed.data.lessonId,
+          domain: parsed.data.domain,
+          step: "role_practice",
+          transcript: parsed.data.transcript,
+          score: parsed.data.score,
+          criticalError: parsed.data.criticalError,
+          feedback: parsed.data.feedback,
+        },
+      ));
+    } catch (error) {
+      if (error instanceof Error && error.message === "QUALIFYING_ATTEMPT_REQUIRED") {
+        return Response.json({ error: "Pass this lesson's Role Practice before completing it." }, { status: 409 });
+      }
+      throw error;
+    }
   }
 
   return new Response("Method not allowed", { status: 405, headers: { allow: "GET, POST" } });
@@ -250,34 +276,100 @@ async function handleAssessmentRequest(request: Request, env: Env) {
   if (request.method !== "POST") {
     return new Response("Method not allowed", { status: 405, headers: { allow: "POST" } });
   }
-  if (!(await currentUser(request, env))) return Response.json({ error: "Sign in is required." }, { status: 401 });
+  const user = await currentUser(request, env);
+  if (!user) return Response.json({ error: "Sign in is required." }, { status: 401 });
   const parsed = assessmentSchema.safeParse(await request.json());
   if (!parsed.success) return Response.json({ error: "The confirmed transcript is invalid." }, { status: 400 });
-  return Response.json(await assessWithCloudflare(env, parsed.data));
+  const lesson = parsed.data.lessonId ? lessons.find((entry) => entry.id === parsed.data.lessonId) : undefined;
+  if (parsed.data.lessonId && (!lesson || lesson.domain !== parsed.data.domain)) {
+    return Response.json({ error: "The lesson context is invalid." }, { status: 400 });
+  }
+  const terms = lesson ? getTerms(lesson.termIds) : hospitalityTerms.filter((term) => term.domain === parsed.data.domain).slice(0, 6);
+  if (env.DB && hasCloudflareAi(env)) {
+    const quota = await consumeDailyAiQuota(env.DB, user.id, "assessment");
+    if (!quota.allowed) return Response.json({ error: `Daily AI assessment limit reached (${quota.limit}). Continue with tomorrow's practice or use the lesson review.` }, { status: 429 });
+  }
+  const result = await assessWithCloudflare(env, { ...parsed.data, terms });
+  if (env.DB) {
+    await recordStepAttempt(env.DB, user.id, {
+      lessonId: lesson?.id ?? `${parsed.data.domain}-free-practice`,
+      domain: parsed.data.domain,
+      step: parsed.data.task,
+      transcript: parsed.data.transcript,
+      score: result.score,
+      criticalError: result.criticalError,
+      feedback: result,
+    });
+  }
+  return Response.json(result);
 }
 
 async function handleTranscriptionRequest(request: Request, env: Env) {
   if (request.method !== "POST") {
     return new Response("Method not allowed", { status: 405, headers: { allow: "POST" } });
   }
-  if (!(await currentUser(request, env))) return Response.json({ error: "Sign in is required." }, { status: 401 });
+  const user = await currentUser(request, env);
+  if (!user) return Response.json({ error: "Sign in is required." }, { status: 401 });
   if (!hasCloudflareAi(env)) {
     return Response.json({ error: "Cloudflare speech recognition is not connected yet." }, { status: 503 });
   }
   const form = await request.formData();
   const audio = form.get("audio");
   const domain = form.get("domain") === "hotel" ? "hotel" : "restaurant";
-  const activityPrompt = String(form.get("prompt") ?? "Hospitality service response").slice(0, 800);
-  const suppliedTerms = String(form.get("terms") ?? "").slice(0, 600);
+  const lessonId = String(form.get("lessonId") ?? "").slice(0, 120);
+  const lesson = lessons.find((entry) => entry.id === lessonId && entry.domain === domain);
+  const activityPrompt = lesson?.speakingPrompt ?? String(form.get("prompt") ?? "Hospitality service response").slice(0, 800);
+  const approvedTerms = lesson ? getTerms(lesson.termIds).map((term) => term.term).join(", ") : "hospitality service terminology";
   if (!(audio instanceof File)) return Response.json({ error: "No recording was received." }, { status: 400 });
   if (audio.size < 1000) return Response.json({ error: "The recording was too short or silent. Please try again." }, { status: 400 });
   if (audio.size > 10 * 1024 * 1024) return Response.json({ error: "Recording must be under 10 MB." }, { status: 413 });
+  if (env.DB) {
+    const quota = await consumeDailyAiQuota(env.DB, user.id, "transcription");
+    if (!quota.allowed) return Response.json({ error: `Daily recording limit reached (${quota.limit}). You can still type and confirm your transcript.` }, { status: 429 });
+  }
   try {
-    const context = `${domain} service. Activity: ${activityPrompt}. Approved terms: ${suppliedTerms}`;
+    const context = `${domain} service. Activity: ${activityPrompt}. Approved terms: ${approvedTerms}`;
     const transcript = await transcribeWithCloudflare(env, await audio.arrayBuffer(), context);
     return Response.json({ ...transcript, provider: "cloudflare-workers-ai" });
   } catch {
     return Response.json({ error: "The recording could not be transcribed. Please try again or type the confirmed transcript." }, { status: 502 });
+  }
+}
+
+async function handleGlossaryRequest(request: Request, env: Env) {
+  if (!(await currentUser(request, env))) return Response.json({ error: "Sign in is required." }, { status: 401 });
+  const url = new URL(request.url);
+  const query = (url.searchParams.get("q") ?? "").slice(0, 100);
+  const department = (url.searchParams.get("department") ?? "").slice(0, 100);
+  const limit = Number(url.searchParams.get("limit") ?? 30);
+  const offset = Number(url.searchParams.get("offset") ?? 0);
+  const entries = searchTerms(query, department, Number.isFinite(limit) ? limit : 30, Number.isFinite(offset) ? offset : 0);
+  const total = hospitalityTerms.filter((entry) =>
+    (!department || entry.department === department) &&
+    (!query || `${entry.term} ${entry.department} ${entry.subcategory} ${entry.meaning} ${entry.workplaceUse}`.toLowerCase().includes(query.toLowerCase())),
+  ).length;
+  return Response.json({ entries, total, departments: glossaryDepartments, source: "HOSPITALITY-MASTER.md", auditedEntries: hospitalityTerms.length });
+}
+
+async function handleHistoryRequest(request: Request, env: Env) {
+  if (!env.DB) return Response.json({ attempts: [], completions: [] });
+  const user = await currentUser(request, env);
+  if (!user) return Response.json({ error: "Sign in is required." }, { status: 401 });
+  return Response.json(await getLearnerHistory(env.DB, user.id, Number(new URL(request.url).searchParams.get("limit") ?? 30)));
+}
+
+async function handleAdminCertificates(request: Request, env: Env) {
+  if (!env.DB) return Response.json({ error: "Certificate storage is unavailable." }, { status: 503 });
+  const user = await currentUser(request, env);
+  if (!user || user.role !== "admin") return Response.json({ error: "Administrator access is required." }, { status: 403 });
+  if (request.method === "GET") return Response.json({ certificates: await listCertificateRequests(env.DB) });
+  if (request.method !== "POST" || !sameOrigin(request)) return Response.json({ error: "Request rejected." }, { status: 403 });
+  const parsed = certificateActionSchema.safeParse(await request.json());
+  if (!parsed.success) return Response.json({ error: "Certificate action is invalid." }, { status: 400 });
+  try {
+    return Response.json({ certificate: await approveCertificate(env.DB, parsed.data.certificateId, user.id) });
+  } catch {
+    return Response.json({ error: "The certificate is no longer pending." }, { status: 409 });
   }
 }
 
@@ -307,12 +399,20 @@ const worker = {
       return handleProgressRequest(request, env);
     }
 
+    if (url.pathname === "/api/glossary") return handleGlossaryRequest(request, env);
+    if (url.pathname === "/api/catalog") {
+      if (!(await currentUser(request, env))) return Response.json({ error: "Sign in is required." }, { status: 401 });
+      return Response.json({ lessons, tracks: { hotel: lessons.filter((lesson) => lesson.domain === "hotel").length, restaurant: lessons.filter((lesson) => lesson.domain === "restaurant").length } });
+    }
+    if (url.pathname === "/api/history") return handleHistoryRequest(request, env);
+
     if (url.pathname === "/api/auth/status") return handleAuthStatus(request, env);
     if (url.pathname === "/api/auth/setup") return handleSetup(request, env);
     if (url.pathname === "/api/auth/login") return handleLogin(request, env);
     if (url.pathname === "/api/auth/logout") return handleLogout(request, env);
     if (url.pathname === "/api/auth/change-password") return handleChangePassword(request, env);
     if (url.pathname === "/api/admin/users") return handleAdminUsers(request, env);
+    if (url.pathname === "/api/admin/certificates") return handleAdminCertificates(request, env);
 
     if (url.pathname === "/api/assess") {
       return handleAssessmentRequest(request, env);
@@ -328,11 +428,14 @@ const worker = {
         provider: "Cloudflare Workers AI",
         models: cloudflareAiModels,
         audioRetention: "transient",
+        glossaryEntries: hospitalityTerms.length,
+        lessons: lessons.length,
+        dailyLimits: { assessments: 30, transcriptions: 5 },
       });
     }
 
     if (url.pathname === "/health") {
-      return Response.json({ status: "ok", service: "hospitalingo", architecture: "cloudflare-native" });
+      return Response.json({ status: "ok", service: "hospitalingo", architecture: "cloudflare-native", glossaryEntries: hospitalityTerms.length, lessons: lessons.length });
     }
 
     return handler.fetch(request, env, ctx);

@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import { hospitalityTerms, scoreHospitalityResponse, type Domain } from "./content";
+import { scoreHospitalityResponse, type Domain, type HospitalityTerm } from "./content";
 
 export type AiBinding = {
   run(model: string, input: unknown): Promise<unknown>;
@@ -66,6 +66,7 @@ export async function assessWithCloudflare(
     task: "speaking" | "role_practice";
     prompt?: string;
     safetyRule?: string;
+    terms?: HospitalityTerm[];
   },
 ): Promise<HospitalityAssessment> {
   const deterministic = scoreHospitalityResponse(input.transcript, input.domain);
@@ -80,9 +81,9 @@ export async function assessWithCloudflare(
     };
   }
 
-  const glossary = hospitalityTerms
-    .filter((term) => term.domain === input.domain)
-    .map((term) => `${term.term}: ${term.workplaceUse}. Example: ${term.example}`)
+  const glossary = (input.terms ?? [])
+    .slice(0, 6)
+    .map((term) => `${term.term}: ${term.meaning}\nOperational use: ${term.workplaceUse}\nControl: ${term.controlNote}`)
     .join("\n");
 
   try {
