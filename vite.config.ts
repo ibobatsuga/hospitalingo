@@ -10,27 +10,37 @@ const { d1, r2 } = hostingConfig;
 
 // macOS Seatbelt blocks FSEvents, so Codex previews need polling for HMR.
 const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";
+// Cloudflare Git builds should provision only the bindings required by the MVP.
+// R2 remains part of the product roadmap, but requiring it here blocks accounts
+// that have not enabled R2 yet. Workers AI needs no resource identifier, while
+// D1 can be provisioned automatically when its ID is omitted.
+const isWorkersBuild = process.env.WORKERS_CI === "1";
 
-const localBindingConfig = {
+const workerBindingConfig = {
+  name: "hospitalingo",
   main: "./worker/index.ts",
   compatibility_flags: ["nodejs_compat"],
+  ai: { binding: "AI" },
   d1_databases: d1
-    ? [
-        {
-          binding: d1,
-          database_name: "site-creator-d1",
-          database_id: SITE_CREATOR_PLACEHOLDER_DATABASE_ID,
-        },
-      ]
+    ? isWorkersBuild
+      ? [{ binding: d1 }]
+      : [
+          {
+            binding: d1,
+            database_name: "site-creator-d1",
+            database_id: SITE_CREATOR_PLACEHOLDER_DATABASE_ID,
+          },
+        ]
     : [],
-  r2_buckets: r2
-    ? [
-        {
-          binding: r2,
-          bucket_name: "site-creator-r2",
-        },
-      ]
-    : [],
+  r2_buckets:
+    !isWorkersBuild && r2
+      ? [
+          {
+            binding: r2,
+            bucket_name: "site-creator-r2",
+          },
+        ]
+      : [],
 };
 
 export default defineConfig(async () => {
@@ -52,7 +62,7 @@ export default defineConfig(async () => {
       sites(),
       cloudflare({
         viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
-        config: localBindingConfig,
+        config: workerBindingConfig,
       }),
     ],
   };

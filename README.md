@@ -41,3 +41,5 @@ npm run lint
 ```
 
 The detailed product and architecture decisions live in `docs/PRD-HOSPITALINGO.md`.
+
+For Git-connected Cloudflare Workers builds, the MVP provisions D1 automatically and binds Workers AI as `AI`. R2 is intentionally not required during the initial deployment because the current learning flow does not persist source files or raw learner recordings. Enable and bind R2 as `CONTENT` when the approved content-ingestion phase begins.
