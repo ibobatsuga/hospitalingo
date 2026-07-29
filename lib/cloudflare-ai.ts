@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import { hospitalityTerms, scoreHospitalityResponse, type Domain } from "./content";
 
 export type AiBinding = {
@@ -16,7 +17,7 @@ export type HospitalityAssessment = ReturnType<typeof scoreHospitalityResponse> 
 };
 
 const TEXT_MODEL = "@cf/meta/llama-3.1-8b-instruct-fp8-fast";
-const SPEECH_MODEL = "@cf/openai/whisper";
+const SPEECH_MODEL = "@cf/openai/whisper-large-v3-turbo";
 
 export function hasCloudflareAi(env: CloudflareAiEnv) {
   return Boolean(env.AI || (env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_AI_TOKEN));
@@ -129,11 +130,59 @@ export async function assessWithCloudflare(
   }
 }
 
-export async function transcribeWithCloudflare(env: CloudflareAiEnv, audio: ArrayBuffer) {
+async function normalizeHospitalityTranscript(env: CloudflareAiEnv, rawText: string, context: string) {
+  try {
+    const result = await runModel(env, TEXT_MODEL, {
+      messages: [
+        {
+          role: "system",
+          content:
+            "You proofread automatic speech recognition for an English-learning app. Fix only obvious transcription errors, especially hospitality terminology, using the supplied context. Preserve the learner's grammar, wording, and mistakes. Never answer the prompt or add missing ideas. Return JSON only: {\"text\":\"...\"}.",
+        },
+        {
+          role: "user",
+          content: `Hospitality context: ${context}\nRaw transcript: ${rawText}`,
+        },
+      ],
+      max_tokens: 250,
+      temperature: 0,
+    });
+    const parsed = extractJson(result);
+    const normalized = typeof parsed.text === "string" ? parsed.text.trim() : "";
+    if (!normalized) return rawText;
+
+    const rawWords = rawText.split(/\s+/).filter(Boolean).length;
+    const normalizedWords = normalized.split(/\s+/).filter(Boolean).length;
+    const maximumDifference = Math.max(3, Math.ceil(rawWords * 0.35));
+    return Math.abs(rawWords - normalizedWords) <= maximumDifference ? normalized : rawText;
+  } catch {
+    return rawText;
+  }
+}
+
+export async function transcribeWithCloudflare(
+  env: CloudflareAiEnv,
+  audio: ArrayBuffer,
+  context: string,
+) {
   if (!hasCloudflareAi(env)) throw new Error("Cloudflare AI is not configured.");
-  const result = await runModel(env, SPEECH_MODEL, { audio: Array.from(new Uint8Array(audio)) });
+  const result = await runModel(env, SPEECH_MODEL, {
+    audio: Buffer.from(audio).toString("base64"),
+    task: "transcribe",
+    language: "en",
+    vad_filter: true,
+    initial_prompt: `An Indonesian hospitality learner is speaking English. Relevant hotel and restaurant context: ${context}. Preserve what the learner actually says.`,
+    beam_size: 5,
+    condition_on_previous_text: false,
+    no_speech_threshold: 0.6,
+    compression_ratio_threshold: 2.4,
+    log_prob_threshold: -1,
+  });
   if (typeof result === "object" && result && "text" in result) {
-    return String((result as { text: unknown }).text).trim();
+    const rawText = String((result as { text: unknown }).text).trim();
+    if (!rawText) throw new Error("Cloudflare speech recognition returned no transcript.");
+    const text = await normalizeHospitalityTranscript(env, rawText, context);
+    return { text, rawText, normalized: text !== rawText };
   }
   throw new Error("Cloudflare speech recognition returned no transcript.");
 }

@@ -64,6 +64,40 @@ test("advertises Cloudflare AI status and keeps a safe assessment fallback", asy
   assert.ok(feedback.score >= 75);
 });
 
+test("uses contextual Cloudflare transcription and preserves the raw version", async () => {
+  const worker = await loadWorker();
+  const models = [];
+  const runtimeEnv = {
+    ASSETS: assets,
+    AI: {
+      async run(model, input) {
+        models.push({ model, input });
+        if (model.includes("whisper")) return { text: "Please keep the chicken open." };
+        return { response: '{"text":"Please keep the check open."}' };
+      },
+    },
+  };
+  const form = new FormData();
+  form.append("audio", new File([new Uint8Array(1400)], "answer.webm", { type: "audio/webm" }));
+  form.append("domain", "restaurant");
+  form.append("prompt", "Explain that the open check remains active.");
+  form.append("terms", "Open check, cover, void");
+
+  const response = await worker.fetch(
+    new Request("http://localhost/api/transcribe", { method: "POST", body: form }),
+    runtimeEnv,
+    context,
+  );
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.rawText, "Please keep the chicken open.");
+  assert.equal(payload.text, "Please keep the check open.");
+  assert.equal(payload.normalized, true);
+  assert.match(models[0].model, /whisper-large-v3-turbo/);
+  assert.equal(models[0].input.language, "en");
+  assert.match(models[0].input.initial_prompt, /Open check/);
+});
+
 test("keeps product metadata and Cloudflare persistence foundations", async () => {
   const [page, layout, packageJson, hosting] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),

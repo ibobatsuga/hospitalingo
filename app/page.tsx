@@ -33,8 +33,10 @@ export default function Home() {
   const [listeningAnswer, setListeningAnswer] = useState<number | null>(null);
   const [grammarAnswer, setGrammarAnswer] = useState<number | null>(null);
   const [transcript, setTranscript] = useState("");
+  const [rawSpeakingTranscript, setRawSpeakingTranscript] = useState("");
   const [speakingFeedback, setSpeakingFeedback] = useState<Assessment | null>(null);
   const [roleResponse, setRoleResponse] = useState("");
+  const [rawRoleTranscript, setRawRoleTranscript] = useState("");
   const [roleFeedback, setRoleFeedback] = useState<Assessment | null>(null);
   const [lessonComplete, setLessonComplete] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -46,6 +48,7 @@ export default function Home() {
   const [aiAvailable, setAiAvailable] = useState(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recordingChunksRef = useRef<Blob[]>([]);
+  const recordingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const lesson = useMemo(() => getLesson(domain, progress.currentLesson), [domain, progress.currentLesson]);
   const terms = useMemo(() => getTerms(lesson.termIds), [lesson.termIds]);
@@ -73,8 +76,10 @@ export default function Home() {
     setListeningAnswer(null);
     setGrammarAnswer(null);
     setTranscript("");
+    setRawSpeakingTranscript("");
     setSpeakingFeedback(null);
     setRoleResponse("");
+    setRawRoleTranscript("");
     setRoleFeedback(null);
     setLessonComplete(false);
     setView("lesson");
@@ -132,18 +137,27 @@ export default function Home() {
     setTranscribingTarget(target);
     try {
       const form = new FormData();
-      form.append("audio", blob, "hospitalingo-recording.webm");
+      form.append("audio", blob, blob.type.includes("mp4") ? "hospitalingo-recording.m4a" : "hospitalingo-recording.webm");
+      form.append("domain", domain);
+      form.append("prompt", target === "speaking" ? lesson.speakingPrompt : lesson.roleScenario.guestMessage);
+      form.append("terms", terms.map((term) => term.term).join(", "));
       const response = await fetch("/api/transcribe", { method: "POST", body: form });
-      const payload = (await response.json()) as { text?: string; error?: string };
+      const payload = (await response.json()) as { text?: string; rawText?: string; normalized?: boolean; error?: string };
       if (!response.ok || !payload.text) throw new Error(payload.error || "No transcript returned.");
       if (target === "speaking") {
         setTranscript(payload.text);
+        setRawSpeakingTranscript(payload.rawText ?? payload.text);
         setSpeakingFeedback(null);
       } else {
         setRoleResponse(payload.text);
+        setRawRoleTranscript(payload.rawText ?? payload.text);
         setRoleFeedback(null);
       }
-      setNotice("Recording transcribed by Cloudflare AI. Review the transcript before assessment.");
+      setNotice(
+        payload.normalized
+          ? "Cloudflare transcribed the recording and corrected likely hospitality-term errors. Compare the raw version before assessment."
+          : "Recording transcribed by Cloudflare AI. Review the transcript before assessment.",
+      );
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "The recording could not be transcribed. You can type the transcript instead.");
     } finally {
@@ -161,21 +175,39 @@ export default function Home() {
       return;
     }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
+      window.speechSynthesis?.cancel();
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+      const preferredMimeType = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"].find((type) =>
+        MediaRecorder.isTypeSupported(type),
+      );
+      const recorder = new MediaRecorder(
+        stream,
+        preferredMimeType ? { mimeType: preferredMimeType, audioBitsPerSecond: 128000 } : undefined,
+      );
       recorderRef.current = recorder;
       recordingChunksRef.current = [];
       recorder.ondataavailable = (event) => {
         if (event.data.size) recordingChunksRef.current.push(event.data);
       };
       recorder.onstop = () => {
+        if (recordingTimeoutRef.current) clearTimeout(recordingTimeoutRef.current);
         stream.getTracks().forEach((track) => track.stop());
         const blob = new Blob(recordingChunksRef.current, { type: recorder.mimeType || "audio/webm" });
         recorderRef.current = null;
         setRecordingTarget(null);
         void transcribeRecording(blob, target);
       };
-      recorder.start();
+      recorder.start(250);
+      recordingTimeoutRef.current = setTimeout(() => {
+        if (recorder.state === "recording") recorder.stop();
+      }, 60_000);
       setRecordingTarget(target);
       setNotice("Recording… Speak naturally, then tap Stop recording.");
     } catch {
@@ -438,6 +470,15 @@ export default function Home() {
                     rows={4}
                   />
                 </label>
+                {rawSpeakingTranscript && rawSpeakingTranscript !== transcript && (
+                  <RawTranscript
+                    text={rawSpeakingTranscript}
+                    onUse={() => {
+                      setTranscript(rawSpeakingTranscript);
+                      setSpeakingFeedback(null);
+                    }}
+                  />
+                )}
                 {speakingFeedback && (
                   <FeedbackCard feedback={speakingFeedback} modelAnswer={lesson.modelAnswer} />
                 )}
@@ -485,6 +526,15 @@ export default function Home() {
                     {recordingTarget === "role" ? "Stop recording" : transcribingTarget === "role" ? "Transcribing…" : "Record response"}
                   </button>
                 </div>
+                {rawRoleTranscript && rawRoleTranscript !== roleResponse && (
+                  <RawTranscript
+                    text={rawRoleTranscript}
+                    onUse={() => {
+                      setRoleResponse(rawRoleTranscript);
+                      setRoleFeedback(null);
+                    }}
+                  />
+                )}
                 {roleFeedback && <FeedbackCard feedback={roleFeedback} modelAnswer={lesson.modelAnswer} />}
                 <div className="surface-actions end">
                   <Button color="primary" size="lg" loading={saving} disabled={!roleResponse.trim()} onClick={finishLesson}>
@@ -641,5 +691,15 @@ function Requirement({ label, value, done }: { label: string; value: string; don
       <strong>{label}</strong>
       <small>{value}</small>
     </div>
+  );
+}
+
+function RawTranscript({ text, onUse }: { text: string; onUse: () => void }) {
+  return (
+    <details className="raw-transcript">
+      <summary>Compare raw transcription</summary>
+      <p>“{text}”</p>
+      <button type="button" className="text-action" onClick={onUse}>Use raw version</button>
+    </details>
   );
 }

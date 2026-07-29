@@ -99,11 +99,16 @@ async function handleTranscriptionRequest(request: Request, env: Env) {
   }
   const form = await request.formData();
   const audio = form.get("audio");
+  const domain = form.get("domain") === "hotel" ? "hotel" : "restaurant";
+  const activityPrompt = String(form.get("prompt") ?? "Hospitality service response").slice(0, 800);
+  const suppliedTerms = String(form.get("terms") ?? "").slice(0, 600);
   if (!(audio instanceof File)) return Response.json({ error: "No recording was received." }, { status: 400 });
+  if (audio.size < 1000) return Response.json({ error: "The recording was too short or silent. Please try again." }, { status: 400 });
   if (audio.size > 10 * 1024 * 1024) return Response.json({ error: "Recording must be under 10 MB." }, { status: 413 });
   try {
-    const text = await transcribeWithCloudflare(env, await audio.arrayBuffer());
-    return Response.json({ text, provider: "cloudflare-workers-ai" });
+    const context = `${domain} service. Activity: ${activityPrompt}. Approved terms: ${suppliedTerms}`;
+    const transcript = await transcribeWithCloudflare(env, await audio.arrayBuffer(), context);
+    return Response.json({ ...transcript, provider: "cloudflare-workers-ai" });
   } catch {
     return Response.json({ error: "The recording could not be transcribed. Please try again or type the confirmed transcript." }, { status: 502 });
   }
