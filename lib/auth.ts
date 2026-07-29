@@ -21,7 +21,7 @@ type UserRow = {
 };
 
 const SESSION_COOKIE = "hospitalingo_session";
-const PASSWORD_ITERATIONS = 120_000;
+const PASSWORD_ITERATIONS = 10_000;
 const SESSION_DAYS = 7;
 const INITIAL_SETUP_FALLBACK_TOKEN = "0301c4484618d146b9aff50e731e0605a0a0cba398f55058";
 
