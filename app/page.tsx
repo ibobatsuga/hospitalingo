@@ -1,136 +1,80 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Badge } from "@openai/apps-sdk-ui/components/Badge";
+import { Button } from "@openai/apps-sdk-ui/components/Button";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { getLesson, getTerms, scoreHospitalityResponse, type Domain } from "../lib/content";
 
-type View = "today" | "practice" | "progress";
-type Skill = "Vocabulary" | "Listening" | "Grammar" | "Speaking" | "Conversation";
-
-type RecognitionLike = {
-  lang: string;
-  interimResults: boolean;
-  continuous: boolean;
-  start: () => void;
-  stop: () => void;
-  onresult: ((event: { results: ArrayLike<{ 0: { transcript: string } }> }) => void) | null;
-  onend: (() => void) | null;
-  onerror: (() => void) | null;
+type Progress = {
+  hotelCompleted: number;
+  restaurantCompleted: number;
+  currentLesson: number;
+  certificateEligible: boolean;
 };
 
-declare global {
-  interface Window {
-    webkitSpeechRecognition?: new () => RecognitionLike;
-    SpeechRecognition?: new () => RecognitionLike;
-  }
-}
+type Step = "Vocabulary" | "Listening" | "Grammar" | "Speaking" | "Role Practice";
 
-const lessonSteps: Array<{ skill: Skill; minutes: number; description: string; tone: string }> = [
-  { skill: "Vocabulary", minutes: 3, description: "8 useful café words", tone: "mint" },
-  { skill: "Listening", minutes: 3, description: "A breakfast order", tone: "blue" },
-  { skill: "Grammar", minutes: 3, description: "Could I have…?", tone: "peach" },
-  { skill: "Speaking", minutes: 4, description: "Order your breakfast", tone: "yellow" },
-  { skill: "Conversation", minutes: 5, description: "Roleplay with Mia", tone: "violet" },
-];
-
-const vocabulary = [
-  { word: "recommend", meaning: "merekomendasikan", example: "What do you recommend?" },
-  { word: "on the side", meaning: "disajikan terpisah", example: "Could I get the sauce on the side?" },
-  { word: "still water", meaning: "air mineral tanpa soda", example: "Still water, please." },
-  { word: "bill", meaning: "tagihan", example: "Could we have the bill?" },
-];
-
-const defaultReplies = [
-  "Great start! Would you like anything to drink with that?",
-  "Nice choice. Would you like the sauce on the side?",
-  "Of course. Is there anything else I can get for you?",
-];
-
-const practiceScenes = [
-  {
-    title: "Hotel check-in",
-    subtitle: "Welcome a new guest",
-    image: "https://images.unsplash.com/photo-1556740749-887f6717d7e4?auto=format&fit=crop&w=900&q=85",
-  },
-  {
-    title: "At the restaurant",
-    subtitle: "Take a dinner order",
-    image: "https://images.unsplash.com/photo-1569683236049-bc137196a02a?auto=format&fit=crop&w=900&q=85",
-  },
-  {
-    title: "Coffee break",
-    subtitle: "Chat with a guest",
-    image: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=900&q=85",
-  },
-  {
-    title: "Handle a request",
-    subtitle: "Respond with confidence",
-    image: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=900&q=85",
-  },
-];
-
-function scoreSentence(value: string) {
-  const clean = value.trim();
-  if (!clean) return null;
-  const lower = clean.toLowerCase();
-  const polite = /could i|can i|i would like|i'd like|please/.test(lower);
-  const complete = clean.split(/\s+/).length >= 5;
-  return {
-    score: Math.min(96, 64 + (polite ? 18 : 0) + (complete ? 12 : 0)),
-    corrected: clean.replace(/^i want\b/i, "I'd like"),
-    note: polite
-      ? "Good! Your request sounds polite and natural."
-      : "Try opening with “Could I have…” or “I’d like…” to sound more natural.",
-  };
-}
+const steps: Step[] = ["Vocabulary", "Listening", "Grammar", "Speaking", "Role Practice"];
+const defaultProgress: Progress = {
+  hotelCompleted: 6,
+  restaurantCompleted: 5,
+  currentLesson: 12,
+  certificateEligible: false,
+};
 
 export default function Home() {
-  const [view, setView] = useState<View>("today");
-  const [activeSkill, setActiveSkill] = useState<Skill>("Speaking");
-  const [completed, setCompleted] = useState<string[]>([]);
-  const [revealedWord, setRevealedWord] = useState(0);
-  const [listeningAnswer, setListeningAnswer] = useState<string | null>(null);
+  const [view, setView] = useState<"today" | "lesson" | "progress">("today");
+  const [progress, setProgress] = useState<Progress>(defaultProgress);
+  const [domain, setDomain] = useState<Domain>("restaurant");
+  const [stepIndex, setStepIndex] = useState(0);
+  const [listeningAnswer, setListeningAnswer] = useState<number | null>(null);
+  const [grammarAnswer, setGrammarAnswer] = useState<number | null>(null);
   const [transcript, setTranscript] = useState("");
-  const [isListening, setIsListening] = useState(false);
-  const [feedback, setFeedback] = useState<ReturnType<typeof scoreSentence>>(null);
-  const [messages, setMessages] = useState([
-    { from: "tutor", text: "Good morning! Welcome to Sunny Side Café. What can I get for you?" },
-  ]);
-  const [chatInput, setChatInput] = useState("");
-  const [placementOpen, setPlacementOpen] = useState(false);
-  const [placementStep, setPlacementStep] = useState(0);
-  const [placementScore, setPlacementScore] = useState(0);
-  const [placementResult, setPlacementResult] = useState<string | null>(null);
-  const [greeting, setGreeting] = useState("Good to see you");
-  const recognitionRef = useRef<RecognitionLike | null>(null);
+  const [speakingFeedback, setSpeakingFeedback] = useState<ReturnType<typeof scoreHospitalityResponse> | null>(null);
+  const [roleResponse, setRoleResponse] = useState("");
+  const [roleFeedback, setRoleFeedback] = useState<ReturnType<typeof scoreHospitalityResponse> | null>(null);
+  const [lessonComplete, setLessonComplete] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [composer, setComposer] = useState("");
+  const [notice, setNotice] = useState("Your learning plan is ready.");
+  const [embedded, setEmbedded] = useState(false);
+
+  const lesson = useMemo(() => getLesson(domain, progress.currentLesson), [domain, progress.currentLesson]);
+  const terms = useMemo(() => getTerms(lesson.termIds), [lesson.termIds]);
+  const currentStep = steps[stepIndex];
+  const totalCompleted = progress.hotelCompleted + progress.restaurantCompleted;
+  const completionPercent = Math.min(100, Math.round((totalCompleted / 50) * 100));
 
   useEffect(() => {
-    const saved = window.localStorage.getItem("lancar-progress");
-    if (saved) {
-      try {
-        setCompleted(JSON.parse(saved));
-      } catch {
-        setCompleted([]);
-      }
-    }
+    const frame = window.requestAnimationFrame(() => setEmbedded(window.parent !== window));
+    fetch("/api/progress")
+      .then((response) => (response.ok ? response.json() : Promise.reject()))
+      .then((data: Progress) => {
+        setProgress(data);
+        setDomain(data.hotelCompleted <= data.restaurantCompleted ? "hotel" : "restaurant");
+      })
+      .catch(() => setNotice("Demo progress is active. Your hosted account will sync automatically."));
+    return () => window.cancelAnimationFrame(frame);
   }, []);
 
-  useEffect(() => {
-    window.localStorage.setItem("lancar-progress", JSON.stringify(completed));
-  }, [completed]);
-
-  useEffect(() => {
-    const hour = new Date().getHours();
-    setGreeting(hour < 11 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening");
-  }, []);
-
-  const progress = Math.round((completed.length / lessonSteps.length) * 100);
-  const xp = 320 + completed.length * 35;
-
-  function markComplete(skill: Skill) {
-    setCompleted((current) => (current.includes(skill) ? current : [...current, skill]));
+  function resetLesson(nextDomain = domain) {
+    setDomain(nextDomain);
+    setStepIndex(0);
+    setListeningAnswer(null);
+    setGrammarAnswer(null);
+    setTranscript("");
+    setSpeakingFeedback(null);
+    setRoleResponse("");
+    setRoleFeedback(null);
+    setLessonComplete(false);
+    setView("lesson");
   }
 
-  function speak(text: string, rate = 0.92) {
-    if (!("speechSynthesis" in window)) return;
+  function play(text: string, rate = 0.92) {
+    if (!("speechSynthesis" in window)) {
+      setNotice("Audio playback is not available in this browser. The transcript remains available.");
+      return;
+    }
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = "en-US";
@@ -138,349 +82,411 @@ export default function Home() {
     window.speechSynthesis.speak(utterance);
   }
 
-  function startRecognition(target: "practice" | "chat") {
-    const Constructor = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!Constructor) {
-      setTranscript("Speech recognition is not available here. Type your answer instead.");
-      return;
-    }
-    if (recognitionRef.current && isListening) {
-      recognitionRef.current.stop();
-      return;
-    }
-    const recognition = new Constructor();
-    recognition.lang = "en-US";
-    recognition.interimResults = false;
-    recognition.continuous = false;
-    recognition.onresult = (event) => {
-      const spoken = event.results[0]?.[0]?.transcript ?? "";
-      if (target === "practice") {
-        setTranscript(spoken);
-        setFeedback(scoreSentence(spoken));
-      } else {
-        setChatInput(spoken);
+  function continueStep() {
+    setStepIndex((index) => Math.min(steps.length - 1, index + 1));
+  }
+
+  function confirmTranscript() {
+    setSpeakingFeedback(scoreHospitalityResponse(transcript, domain));
+  }
+
+  async function finishLesson() {
+    const feedback = scoreHospitalityResponse(roleResponse, domain);
+    setRoleFeedback(feedback);
+    if (feedback.score < 75 || feedback.criticalError) return;
+
+    setSaving(true);
+    try {
+      const response = await fetch("/api/progress", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          lessonId: lesson.id,
+          domain,
+          score: feedback.score,
+          criticalError: feedback.criticalError,
+        }),
+      });
+      if (response.ok) setProgress(await response.json());
+      else {
+        setProgress((current) => {
+          const hotelCompleted = Math.min(25, current.hotelCompleted + (domain === "hotel" ? 1 : 0));
+          const restaurantCompleted = Math.min(25, current.restaurantCompleted + (domain === "restaurant" ? 1 : 0));
+          return {
+            hotelCompleted,
+            restaurantCompleted,
+            currentLesson: Math.min(50, hotelCompleted + restaurantCompleted + 1),
+            certificateEligible: hotelCompleted >= 25 && restaurantCompleted >= 25,
+          };
+        });
       }
-    };
-    recognition.onend = () => setIsListening(false);
-    recognition.onerror = () => setIsListening(false);
-    recognitionRef.current = recognition;
-    setIsListening(true);
-    recognition.start();
-  }
-
-  function sendMessage() {
-    const value = chatInput.trim();
-    if (!value) return;
-    const turn = messages.filter((message) => message.from === "user").length;
-    setMessages((current) => [
-      ...current,
-      { from: "user", text: value },
-      { from: "tutor", text: defaultReplies[turn % defaultReplies.length] },
-    ]);
-    setChatInput("");
-    if (turn >= 2) markComplete("Conversation");
-  }
-
-  const placementQuestions = [
-    {
-      question: "Choose the correct sentence.",
-      options: ["She go to work every day.", "She goes to work every day.", "She going to work every day."],
-      answer: 1,
-    },
-    {
-      question: "You didn't hear someone. What do you say?",
-      options: ["Repeat!", "Could you say that again, please?", "You speak again."],
-      answer: 1,
-    },
-    {
-      question: "Complete: I have lived here ___ 2022.",
-      options: ["for", "since", "during"],
-      answer: 1,
-    },
-  ];
-
-  function answerPlacement(index: number) {
-    const nextScore = placementScore + (index === placementQuestions[placementStep].answer ? 1 : 0);
-    setPlacementScore(nextScore);
-    if (placementStep === placementQuestions.length - 1) {
-      setPlacementResult(nextScore === 3 ? "B1 — Intermediate" : nextScore === 2 ? "A2 — Elementary" : "A1 — Beginner");
-    } else {
-      setPlacementStep((step) => step + 1);
+      setLessonComplete(true);
+      setNotice("Lesson completed. Your confirmed transcript and result were recorded.");
+    } catch {
+      setNotice("Lesson completed in demo mode. Progress will sync when storage is available.");
+      setLessonComplete(true);
+    } finally {
+      setSaving(false);
     }
+  }
+
+  function handleComposer(event: FormEvent) {
+    event.preventDefault();
+    const prompt = composer.trim().toLowerCase();
+    if (!prompt) return;
+    if (prompt.includes("progress") || prompt.includes("certificate")) {
+      setView("progress");
+      setNotice("Here is your certificate progress.");
+    } else if (prompt.includes("hotel")) {
+      resetLesson("hotel");
+      setNotice("Starting a Hotel Front Office lesson.");
+    } else if (prompt.includes("restaurant") || prompt.includes("lesson") || prompt.includes("start")) {
+      resetLesson(prompt.includes("restaurant") ? "restaurant" : domain);
+      setNotice("Starting your recommended lesson.");
+    } else {
+      setNotice("Try “start lesson”, “hotel practice”, or “show certificate progress”.");
+    }
+    setComposer("");
   }
 
   return (
-    <main className="app-shell">
-      <aside className="sidebar">
-        <button className="brand" onClick={() => setView("today")} aria-label="Go to today">
-          <span className="brand-mark">H</span>
-          <span>Hospita<span className="brand-dot">Lingo</span></span>
+    <main className="app-frame">
+      <header className="app-header">
+        <button className="app-identity" onClick={() => setView("today")} aria-label="Open HospitaLingo home">
+          <span className="app-mark">H</span>
+          <span>
+            <strong>HospitaLingo</strong>
+            <small>English for Hotel &amp; Restaurant</small>
+          </span>
         </button>
+        <Badge color="secondary" variant="soft" pill>Internal preview</Badge>
+      </header>
 
-        <nav className="main-nav" aria-label="Main navigation">
-          <button className={view === "today" ? "active" : ""} onClick={() => setView("today")}>
-            <span>⌂</span> Today
-          </button>
-          <button className={view === "practice" ? "active" : ""} onClick={() => setView("practice")}>
-            <span>◎</span> Practice
-          </button>
-          <button className={view === "progress" ? "active" : ""} onClick={() => setView("progress")}>
-            <span>↗</span> Progress
-          </button>
-        </nav>
-
-        <div className="sidebar-divider" />
-        <p className="nav-label">Your skills</p>
-        <div className="skill-nav">
-          {lessonSteps.map((item) => (
-            <button
-              key={item.skill}
-              onClick={() => { setActiveSkill(item.skill); setView("practice"); }}
-            >
-              <span className={`skill-dot ${item.tone}`} />
-              {item.skill}
-              {completed.includes(item.skill) && <span className="nav-check">✓</span>}
-            </button>
-          ))}
-        </div>
-
-        <div className="sidebar-profile">
-          <div className="avatar">BO</div>
-          <div><strong>Bobi</strong><span>A2 hospitality learner</span></div>
-          <button aria-label="Profile options">•••</button>
-        </div>
-      </aside>
-
-      <section className="workspace">
-        <header className="topbar">
-          <div className="mobile-brand"><span className="brand-mark">H</span>HospitaLingo</div>
-          <div className="day-chip">UNIT 01 <span>· Everyday hospitality</span></div>
-          <div className="top-actions">
-            <span className="streak">🔥 6 day streak</span>
-            <button className="icon-button" aria-label="Notifications">◦</button>
+      <section className="conversation" aria-live="polite">
+        <article className="assistant-turn">
+          <div className="assistant-avatar" aria-hidden="true">H</div>
+          <div className="turn-content">
+            <p className="assistant-name">HospitaLingo</p>
+            <p>{notice}</p>
           </div>
-        </header>
+        </article>
 
         {view === "today" && (
-          <div className="hospital-dashboard">
-            <section className="dashboard-focus">
-              <div className="welcome-row">
-                <div className="welcome-person">
-                  <div className="profile-photo" aria-hidden="true" />
-                  <div><span>{greeting}</span><strong>Welcome back, Bobi</strong></div>
-                </div>
-                <button className="notification-button" aria-label="Notifications">♢<span /></button>
+          <section className="surface today-card" aria-labelledby="today-title">
+            <div className="surface-topline">
+              <Badge color={domain === "hotel" ? "info" : "success"} variant="soft" pill>
+                {domain === "hotel" ? "Hotel Service" : "Restaurant Service"}
+              </Badge>
+              <span>Lesson {Math.min(50, progress.currentLesson)} of 50</span>
+            </div>
+            <div className="today-copy">
+              <p className="eyebrow">RECOMMENDED NEXT</p>
+              <h1 id="today-title">{lesson.title}</h1>
+              <p>{lesson.subtitle}. Complete all five learning steps in about {lesson.durationMinutes} minutes.</p>
+            </div>
+            <div className="progress-block">
+              <div className="progress-label">
+                <span>Certificate pathway</span>
+                <strong>{totalCompleted}/50 lessons</strong>
               </div>
-
-              <section className="level-panel">
-                <div className="level-copy"><span>Level A2</span><strong>Building confidence</strong></div>
-                <div className="level-streak">🔥 <strong>6</strong></div>
-                <div className="segmented-progress" aria-label={`${progress}% lesson progress`}>
-                  {[0, 1, 2, 3].map((segment) => <span key={segment} className={segment <= Math.floor(progress / 25) ? "filled" : ""} />)}
-                </div>
-              </section>
-
-              <div className="unit-heading">
-                <div><span>UNIT 1 · LESSON 04</span><h1>Simple guest conversations</h1><p>Build the phrases you need to welcome, help, and delight every guest.</p></div>
-                <div className="lesson-count">▣ <span>16 lessons</span></div>
+              <div className="progress-track" aria-label={`${completionPercent}% complete`}>
+                <span style={{ width: `${completionPercent}%` }} />
               </div>
-
-              <section className="speaking-stage">
-                <div className="prompt-bubble">Let’s welcome a guest who has just arrived.</div>
-                <div className="stage-top">
-                  <div className="avatar-stack" aria-label="Community learners"><span>B</span><span>M</span><span>A</span></div>
-                  <button aria-label="More lesson options">•••</button>
-                </div>
-                <h2>“Good evening. Welcome to our hotel.”</h2>
-                <div className="voice-controls">
-                  <button onClick={() => speak("Good evening. Welcome to our hotel.")} aria-label="Hear the phrase">▶</button>
-                  <button className={`hero-mic ${isListening ? "recording" : ""}`} onClick={() => startRecognition("practice")} aria-label="Practice speaking">●</button>
-                  <button onClick={() => { setActiveSkill("Conversation"); setView("practice"); }} aria-label="Open conversation">•••</button>
-                </div>
-                <span className="stage-caption">Ask anything · Speak naturally</span>
-                <button className="stage-start" onClick={() => { setActiveSkill("Speaking"); setView("practice"); }}>Start speaking <span>→</span></button>
-              </section>
-
-              <div className="coach-nudge"><span>AI COACH</span><p>Try adding: <strong>“How was your journey?”</strong></p><button onClick={() => speak("How was your journey?")}>Hear it ↗</button></div>
-            </section>
-
-            <aside className="dashboard-community">
-              <div className="community-heading"><div><span>PRACTICE LIBRARY</span><h2>Choose your scene</h2></div><button onClick={() => setView("practice")}>See all →</button></div>
-              <div className="scene-grid">
-                {practiceScenes.map((scene, index) => (
-                  <button className="scene-card" key={scene.title} onClick={() => { setActiveSkill(index === 3 ? "Speaking" : "Conversation"); setView("practice"); }}>
-                    <img src={scene.image} alt="" />
-                    <span className="scene-fade" />
-                    <span className="scene-tag">Start speaking</span>
-                    <span className="scene-copy"><strong>{scene.title}</strong><small>{scene.subtitle}</small></span>
-                  </button>
-                ))}
+              <div className="domain-counts">
+                <span>Hotel {progress.hotelCompleted}/25</span>
+                <span>Restaurant {progress.restaurantCompleted}/25</span>
               </div>
+            </div>
+            <div className="surface-actions">
+              <Button color="primary" size="lg" onClick={() => resetLesson(domain)}>Continue lesson</Button>
+              <Button color="secondary" variant="outline" size="lg" onClick={() => setView("progress")}>View progress</Button>
+            </div>
+          </section>
+        )}
 
-              <section className="daily-path-card">
-                <div className="section-heading"><div><span className="eyebrow">TODAY’S PATH</span><h2>Five small wins</h2></div><span>{completed.length}/5 done</span></div>
-                <div className="compact-lessons">
-                  {lessonSteps.map((item, index) => (
-                    <button key={item.skill} className={completed.includes(item.skill) ? "done" : ""} onClick={() => { setActiveSkill(item.skill); setView("practice"); }}>
-                      <span className={`step-number ${item.tone}`}>{completed.includes(item.skill) ? "✓" : index + 1}</span>
-                      <span><strong>{item.skill}</strong><small>{item.description}</small></span>
-                      <b>{item.minutes}m</b>
+        {view === "lesson" && (
+          <section className="surface lesson-surface" aria-labelledby="lesson-title">
+            <div className="surface-topline">
+              <Badge color={domain === "hotel" ? "info" : "success"} variant="soft" pill>
+                {domain === "hotel" ? "Hotel Front Office" : "Restaurant Service"}
+              </Badge>
+              <button className="text-action" onClick={() => setView("today")}>Exit lesson</button>
+            </div>
+
+            <div className="lesson-heading">
+              <div>
+                <p className="eyebrow">LESSON {Math.min(50, progress.currentLesson)} · {lesson.durationMinutes} MIN</p>
+                <h1 id="lesson-title">{lesson.title}</h1>
+                <p>{lesson.subtitle}</p>
+              </div>
+              <span className="step-count">{stepIndex + 1}/{steps.length}</span>
+            </div>
+
+            <ol className="lesson-stepper" aria-label="Lesson progress">
+              {steps.map((step, index) => (
+                <li key={step} className={index === stepIndex ? "active" : index < stepIndex ? "done" : ""}>
+                  <span>{index < stepIndex ? "✓" : index + 1}</span>
+                  <small>{step}</small>
+                </li>
+              ))}
+            </ol>
+
+            {!lessonComplete && currentStep === "Vocabulary" && (
+              <div className="activity-panel">
+                <p className="activity-label">Vocabulary</p>
+                <div className="term-grid">
+                  {terms.map((term) => (
+                    <article className="term-card" key={term.id}>
+                      <div>
+                        <strong>{term.term}</strong>
+                        <button className="audio-action" onClick={() => play(term.term)} aria-label={`Play ${term.term}`}>▶</button>
+                      </div>
+                      <p>{term.meaning}</p>
+                      <blockquote>“{term.example}”</blockquote>
+                      <small>Adapted source · Master Edition p. {term.sourcePage}</small>
+                    </article>
+                  ))}
+                </div>
+                <div className="surface-actions end">
+                  <Button color="primary" size="lg" onClick={continueStep}>I understand</Button>
+                </div>
+              </div>
+            )}
+
+            {!lessonComplete && currentStep === "Listening" && (
+              <div className="activity-panel narrow-panel">
+                <p className="activity-label">Listening</p>
+                <h2>Listen to the guest</h2>
+                <button className="listening-player" onClick={() => play(lesson.guestLine)}>
+                  <span className="play-orb">▶</span>
+                  <span><strong>Play guest request</strong><small>Normal speed · transcript unlocks after answering</small></span>
+                </button>
+                <fieldset className="answer-list">
+                  <legend>{lesson.listeningQuestion}</legend>
+                  {lesson.listeningOptions.map((option, index) => (
+                    <button
+                      type="button"
+                      key={option}
+                      className={listeningAnswer === index ? (index === lesson.listeningAnswer ? "correct" : "incorrect") : ""}
+                      onClick={() => setListeningAnswer(index)}
+                    >
+                      <span>{String.fromCharCode(65 + index)}</span>{option}
+                    </button>
+                  ))}
+                </fieldset>
+                {listeningAnswer !== null && (
+                  <div className="transcript-note">
+                    <strong>Guest transcript</strong>
+                    <p>“{lesson.guestLine}”</p>
+                  </div>
+                )}
+                <div className="surface-actions end">
+                  <Button color="primary" size="lg" disabled={listeningAnswer !== lesson.listeningAnswer} onClick={continueStep}>Continue</Button>
+                </div>
+              </div>
+            )}
+
+            {!lessonComplete && currentStep === "Grammar" && (
+              <div className="activity-panel narrow-panel">
+                <p className="activity-label">Grammar for service</p>
+                <h2>{lesson.grammarPrompt}</h2>
+                <div className="answer-list grammar-list">
+                  {lesson.grammarOptions.map((option, index) => (
+                    <button
+                      type="button"
+                      key={option}
+                      className={grammarAnswer === index ? (index === lesson.grammarAnswer ? "correct" : "incorrect") : ""}
+                      onClick={() => setGrammarAnswer(index)}
+                    >
+                      <span>{String.fromCharCode(65 + index)}</span>{option}
                     </button>
                   ))}
                 </div>
-              </section>
-
-              <button className="placement-card warm" onClick={() => setPlacementOpen(true)}>
-                <span className="placement-icon">A2</span>
-                <span><strong>Find your best starting level</strong><small>Take a free 2-minute check</small></span>
-                <span>→</span>
-              </button>
-            </aside>
-          </div>
-        )}
-
-        {view === "practice" && (
-          <div className="practice-layout">
-            <div className="practice-heading">
-              <div><span className="eyebrow">DAY 04 · ORDERING BREAKFAST</span><h1>{activeSkill}</h1></div>
-              <div className="skill-tabs">
-                {lessonSteps.map((item) => <button key={item.skill} className={activeSkill === item.skill ? "active" : ""} onClick={() => setActiveSkill(item.skill)}>{item.skill}</button>)}
-              </div>
-            </div>
-
-            {activeSkill === "Vocabulary" && (
-              <section className="activity-card vocab-card">
-                <div className="activity-kicker">CARD {revealedWord + 1} OF {vocabulary.length}</div>
-                <h2>{vocabulary[revealedWord].word}</h2>
-                <button className="listen-pill" onClick={() => speak(vocabulary[revealedWord].word)}>▶ Hear it</button>
-                <div className="word-meaning"><span>Meaning</span><strong>{vocabulary[revealedWord].meaning}</strong></div>
-                <p className="example-sentence">“{vocabulary[revealedWord].example}”</p>
-                <div className="card-actions">
-                  <button onClick={() => setRevealedWord((current) => (current + 1) % vocabulary.length)}>Review again</button>
-                  <button className="primary-button" onClick={() => { if (revealedWord === vocabulary.length - 1) markComplete("Vocabulary"); setRevealedWord((current) => (current + 1) % vocabulary.length); }}>Got it <span>→</span></button>
-                </div>
-              </section>
-            )}
-
-            {activeSkill === "Listening" && (
-              <section className="activity-card listening-card">
-                <span className="activity-kicker">LISTEN FOR THE MAIN IDEA</span>
-                <div className="audio-visual"><button onClick={() => speak("Good morning. Could I have the avocado toast, please? And could I get the sauce on the side?", 0.88)}>▶</button><div className="waveform">▂▅▃▇▅▂▆▃▇▅▃▆▂▅▇▃</div><span>0:08</span></div>
-                <h2>What did the customer ask for?</h2>
-                <div className="answer-grid">
-                  {["Avocado toast with no sauce", "Avocado toast with sauce on the side", "Toast and a side salad"].map((answer, index) => (
-                    <button key={answer} className={listeningAnswer === answer ? (index === 1 ? "correct" : "wrong") : ""} onClick={() => setListeningAnswer(answer)}><span>{String.fromCharCode(65 + index)}</span>{answer}</button>
-                  ))}
-                </div>
-                {listeningAnswer && <div className={`answer-note ${listeningAnswer.includes("on the side") ? "success" : "try"}`}>{listeningAnswer.includes("on the side") ? "Exactly. You caught the key request." : "Listen once more for the phrase “on the side”."}</div>}
-                <button className="primary-button wide" onClick={() => { markComplete("Listening"); setActiveSkill("Grammar"); }}>Continue <span>→</span></button>
-              </section>
-            )}
-
-            {activeSkill === "Grammar" && (
-              <section className="activity-card grammar-card">
-                <span className="activity-kicker">A PATTERN YOU CAN USE TODAY</span>
-                <h2>Could I have + <em>thing</em> + please?</h2>
-                <p>Use this pattern to make a polite request. No grammar formula to memorize—just swap the thing you need.</p>
-                <div className="pattern-examples">
-                  <button onClick={() => speak("Could I have a cappuccino, please?")}><span>01</span>Could I have a cappuccino, please?<b>▶</b></button>
-                  <button onClick={() => speak("Could I have the bill, please?")}><span>02</span>Could I have the bill, please?<b>▶</b></button>
-                  <button onClick={() => speak("Could I have some water, please?")}><span>03</span>Could I have some water, please?<b>▶</b></button>
-                </div>
-                <button className="primary-button wide" onClick={() => { markComplete("Grammar"); setActiveSkill("Speaking"); }}>Try it out loud <span>→</span></button>
-              </section>
-            )}
-
-            {activeSkill === "Speaking" && (
-              <section className="activity-card speaking-card">
-                <div className="speaking-prompt"><span className="activity-kicker">YOUR TURN</span><h2>Order an omelette and ask for the cheese on the side.</h2><button onClick={() => speak("Could I have an omelette, with the cheese on the side, please?")}>▶ Hear an example</button></div>
-                <div className={`mic-zone ${isListening ? "recording" : ""}`}>
-                  <button className="mic-button" onClick={() => startRecognition("practice")} aria-label={isListening ? "Stop recording" : "Start recording"}>{isListening ? "■" : "●"}</button>
-                  <strong>{isListening ? "Listening…" : "Tap and speak"}</strong>
-                  <span>or type your answer below</span>
-                </div>
-                <textarea value={transcript} onChange={(event) => { setTranscript(event.target.value); setFeedback(null); }} placeholder="Could I have…" aria-label="Your spoken or typed answer" />
-                <button className="primary-button wide" onClick={() => { setFeedback(scoreSentence(transcript)); if (transcript.trim()) markComplete("Speaking"); }}>Check my answer <span>→</span></button>
-                {feedback && (
-                  <div className="feedback-box">
-                    <div className="score-ring">{feedback.score}<small>/100</small></div>
-                    <div><span>MORE NATURAL</span><strong>{feedback.corrected}</strong><p>{feedback.note}</p></div>
-                  </div>
+                {grammarAnswer !== null && grammarAnswer !== lesson.grammarAnswer && (
+                  <p className="error-copy">That response could create an operational risk. Choose a response that checks before confirming.</p>
                 )}
-              </section>
+                <div className="surface-actions end">
+                  <Button color="primary" size="lg" disabled={grammarAnswer !== lesson.grammarAnswer} onClick={continueStep}>Continue</Button>
+                </div>
+              </div>
             )}
 
-            {activeSkill === "Conversation" && (
-              <section className="activity-card conversation-card">
-                <div className="conversation-top"><div className="coach-avatar">M</div><div><span>ROLEPLAY · SUNNY SIDE CAFÉ</span><strong>Mia is your server</strong></div><span className="live-label">LIVE PRACTICE</span></div>
-                <div className="chat-window">
-                  {messages.map((message, index) => (
-                    <div key={`${message.from}-${index}`} className={`message ${message.from}`}><span>{message.text}</span>{message.from === "tutor" && <button onClick={() => speak(message.text)}>▶</button>}</div>
-                  ))}
+            {!lessonComplete && currentStep === "Speaking" && (
+              <div className="activity-panel narrow-panel">
+                <p className="activity-label">Speaking · confirmed transcript</p>
+                <h2>{lesson.speakingPrompt}</h2>
+                <p className="host-hint">In ChatGPT, speak or type using the native composer. This browser preview accepts the confirmed transcript directly.</p>
+                <label className="transcript-field">
+                  <span>Your confirmed transcript</span>
+                  <textarea
+                    value={transcript}
+                    onChange={(event) => {
+                      setTranscript(event.target.value);
+                      setSpeakingFeedback(null);
+                    }}
+                    placeholder="Type the response you want HospitaLingo to assess…"
+                    rows={4}
+                  />
+                </label>
+                {speakingFeedback && (
+                  <FeedbackCard feedback={speakingFeedback} modelAnswer={lesson.modelAnswer} />
+                )}
+                <div className="surface-actions end">
+                  {speakingFeedback?.score && speakingFeedback.score >= 75 && !speakingFeedback.criticalError ? (
+                    <Button color="primary" size="lg" onClick={continueStep}>Continue</Button>
+                  ) : (
+                    <Button color="primary" size="lg" disabled={!transcript.trim()} onClick={confirmTranscript}>Confirm transcript</Button>
+                  )}
+                  {speakingFeedback && (
+                    <Button color="secondary" variant="outline" size="lg" onClick={() => { setTranscript(""); setSpeakingFeedback(null); }}>Try again</Button>
+                  )}
                 </div>
-                <div className="chat-composer">
-                  <button className={isListening ? "active" : ""} onClick={() => startRecognition("chat")} aria-label="Speak your reply">●</button>
-                  <input value={chatInput} onChange={(event) => setChatInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") sendMessage(); }} placeholder="Reply in English…" />
-                  <button onClick={sendMessage} aria-label="Send reply">→</button>
-                </div>
-                <div className="conversation-hint">Try: “Could I have the avocado toast, please?”</div>
-              </section>
+              </div>
             )}
-          </div>
-        )}
 
-        {view === "progress" && (
-          <div className="progress-page">
-            <div className="practice-heading"><div><span className="eyebrow">YOUR LEARNING SIGNALS</span><h1>Small steps, real progress.</h1></div></div>
-            <div className="stat-grid">
-              <div className="stat-card hero-stat"><span>Weekly XP</span><strong>{xp}</strong><small>↑ 18% from last week</small></div>
-              <div className="stat-card"><span>Speaking time</span><strong>42<small> min</small></strong><small>7 sessions completed</small></div>
-              <div className="stat-card"><span>Words mastered</span><strong>68</strong><small>14 ready to review</small></div>
-              <div className="stat-card"><span>Current streak</span><strong>6<small> days</small></strong><small>Your best is 9 days</small></div>
-            </div>
-            <section className="mastery-card">
-              <div className="section-heading"><div><span className="eyebrow">SKILL MASTERY</span><h2>Your strongest signal is listening</h2></div><span>A2 · building toward B1</span></div>
-              {[{ name: "Listening", value: 72 }, { name: "Vocabulary", value: 64 }, { name: "Conversation", value: 58 }, { name: "Speaking", value: 54 }, { name: "Grammar", value: 46 }].map((skill) => (
-                <div className="mastery-row" key={skill.name}><strong>{skill.name}</strong><div><span style={{ width: `${skill.value}%` }} /></div><b>{skill.value}%</b></div>
-              ))}
-            </section>
-            <section className="next-focus"><span>YOUR NEXT FOCUS</span><h2>Polite questions without translating first</h2><p>You often pause before auxiliary verbs. Tomorrow’s lesson will help make “Could you…?” and “Would you…?” automatic.</p><button className="primary-button" onClick={() => { setView("practice"); setActiveSkill("Speaking"); }}>Practice now <span>→</span></button></section>
-          </div>
-        )}
-
-        <nav className="mobile-nav" aria-label="Mobile navigation">
-          <button className={view === "today" ? "active" : ""} onClick={() => setView("today")}><span>⌂</span>Today</button>
-          <button className={view === "practice" ? "active" : ""} onClick={() => setView("practice")}><span>◎</span>Practice</button>
-          <button className={view === "progress" ? "active" : ""} onClick={() => setView("progress")}><span>↗</span>Progress</button>
-        </nav>
-      </section>
-
-      {placementOpen && (
-        <div className="modal-backdrop" role="presentation">
-          <section className="placement-modal" role="dialog" aria-modal="true" aria-label="English placement check">
-            <button className="modal-close" onClick={() => setPlacementOpen(false)} aria-label="Close placement test">×</button>
-            {!placementResult ? (
-              <>
-                <span className="eyebrow">QUICK PLACEMENT CHECK</span>
-                <div className="modal-progress"><span style={{ width: `${((placementStep + 1) / placementQuestions.length) * 100}%` }} /></div>
-                <small>Question {placementStep + 1} of {placementQuestions.length}</small>
-                <h2>{placementQuestions[placementStep].question}</h2>
-                <div className="placement-options">
-                  {placementQuestions[placementStep].options.map((option, index) => <button key={option} onClick={() => answerPlacement(index)}><span>{String.fromCharCode(65 + index)}</span>{option}</button>)}
+            {!lessonComplete && currentStep === "Role Practice" && (
+              <div className="activity-panel narrow-panel">
+                <p className="activity-label">Role Practice</p>
+                <div className="scenario-brief">
+                  <Badge color="secondary" variant="outline" pill>You are the {lesson.roleScenario.role}</Badge>
+                  <h2>{lesson.roleScenario.guestMessage}</h2>
+                  <p><strong>Objective:</strong> {lesson.roleScenario.objective}</p>
                 </div>
-              </>
-            ) : (
-              <div className="placement-result">
-                <div className="result-orb">{placementResult.slice(0, 2)}</div>
-                <span className="eyebrow">YOUR STARTING LEVEL</span>
-                <h2>{placementResult}</h2>
-                <p>Your 30-day path will use shorter prompts, practical patterns, and plenty of guided speaking.</p>
-                <button className="primary-button wide" onClick={() => setPlacementOpen(false)}>Build my learning path <span>→</span></button>
+                <label className="transcript-field">
+                  <span>Your response</span>
+                  <textarea
+                    value={roleResponse}
+                    onChange={(event) => {
+                      setRoleResponse(event.target.value);
+                      setRoleFeedback(null);
+                    }}
+                    placeholder="Respond to the guest in English…"
+                    rows={4}
+                  />
+                </label>
+                {roleFeedback && <FeedbackCard feedback={roleFeedback} modelAnswer={lesson.modelAnswer} />}
+                <div className="surface-actions end">
+                  <Button color="primary" size="lg" loading={saving} disabled={!roleResponse.trim()} onClick={finishLesson}>
+                    {roleFeedback && roleFeedback.score < 75 ? "Check again" : "Complete lesson"}
+                  </Button>
+                  {roleFeedback && roleFeedback.score < 75 && (
+                    <Button color="secondary" variant="outline" size="lg" onClick={() => { setRoleResponse(""); setRoleFeedback(null); }}>Try again</Button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {lessonComplete && (
+              <div className="completion-panel">
+                <span className="completion-mark">✓</span>
+                <p className="eyebrow">LESSON COMPLETE</p>
+                <h2>Good service decision.</h2>
+                <p>Your result has been added to the balanced Hotel and Restaurant certificate pathway.</p>
+                <div className="completion-score">
+                  <span>Hotel <strong>{progress.hotelCompleted}/25</strong></span>
+                  <span>Restaurant <strong>{progress.restaurantCompleted}/25</strong></span>
+                </div>
+                <div className="surface-actions center">
+                  <Button color="primary" size="lg" onClick={() => setView("progress")}>View progress</Button>
+                  <Button
+                    color="secondary"
+                    variant="outline"
+                    size="lg"
+                    onClick={() => resetLesson(progress.hotelCompleted <= progress.restaurantCompleted ? "hotel" : "restaurant")}
+                  >
+                    Next balanced lesson
+                  </Button>
+                </div>
               </div>
             )}
           </section>
-        </div>
+        )}
+
+        {view === "progress" && (
+          <section className="surface certificate-surface" aria-labelledby="certificate-title">
+            <div className="surface-topline">
+              <Badge color={progress.certificateEligible ? "success" : "secondary"} variant="soft" pill>
+                {progress.certificateEligible ? "Eligible" : "In progress"}
+              </Badge>
+              <button className="text-action" onClick={() => setView("today")}>Close</button>
+            </div>
+            <p className="eyebrow">INTERNAL COMPETENCY CERTIFICATE</p>
+            <h1 id="certificate-title">Hospitality English Foundations</h1>
+            <p className="certificate-intro">Complete the balanced pathway, pass both final Role Practices, and receive approval from Bobi Agusta.</p>
+            <div className="certificate-meter">
+              <strong>{totalCompleted}<small>/50</small></strong>
+              <span>qualifying lessons</span>
+              <div className="progress-track"><span style={{ width: `${completionPercent}%` }} /></div>
+            </div>
+            <div className="requirement-list">
+              <Requirement label="Complete 25 Hotel lessons" value={`${progress.hotelCompleted}/25`} done={progress.hotelCompleted >= 25} />
+              <Requirement label="Complete 25 Restaurant lessons" value={`${progress.restaurantCompleted}/25`} done={progress.restaurantCompleted >= 25} />
+              <Requirement label="Pass Hotel final Role Practice" value="Locked" done={false} />
+              <Requirement label="Pass Restaurant final Role Practice" value="Locked" done={false} />
+              <Requirement label="Minimum final score 75" value="Pending" done={false} />
+              <Requirement label="Approval by Bobi Agusta" value="Pending" done={false} />
+            </div>
+            <div className="certificate-note">
+              <strong>Internal Use Only</strong>
+              <span>Valid for 365 days after approval. Transcript-only speaking is accepted; pronunciation and accent are not certified.</span>
+            </div>
+            <div className="surface-actions">
+              <Button color="primary" size="lg" onClick={() => resetLesson(progress.hotelCompleted <= progress.restaurantCompleted ? "hotel" : "restaurant")}>
+                Continue recommended lesson
+              </Button>
+            </div>
+          </section>
+        )}
+      </section>
+
+      {!embedded && (
+        <form className="preview-composer" onSubmit={handleComposer}>
+          <label htmlFor="composer">Ask HospitaLingo</label>
+          <div>
+            <input
+              id="composer"
+              value={composer}
+              onChange={(event) => setComposer(event.target.value)}
+              placeholder="Start lesson, hotel practice, or show progress…"
+            />
+            <button type="submit" aria-label="Send">↑</button>
+          </div>
+          <small>Browser preview · ChatGPT uses its own native composer and voice input.</small>
+        </form>
       )}
     </main>
+  );
+}
+
+function FeedbackCard({
+  feedback,
+  modelAnswer,
+}: {
+  feedback: ReturnType<typeof scoreHospitalityResponse>;
+  modelAnswer: string;
+}) {
+  return (
+    <div className={`feedback-card ${feedback.criticalError ? "critical" : feedback.score >= 75 ? "ready" : "developing"}`}>
+      <div className="feedback-heading">
+        <div><strong>{feedback.status}</strong><span>{feedback.criticalError ? "Operational safety needs attention" : "Confirmed transcript assessment"}</span></div>
+        <b>{feedback.score}</b>
+      </div>
+      {feedback.corrections.length > 0 ? (
+        <ol>{feedback.corrections.map((correction) => <li key={correction}>{correction}</li>)}</ol>
+      ) : (
+        <p>Your response is polite, clear, and operationally safe.</p>
+      )}
+      <div className="model-answer"><strong>Natural model response</strong><p>“{modelAnswer}”</p></div>
+    </div>
+  );
+}
+
+function Requirement({ label, value, done }: { label: string; value: string; done: boolean }) {
+  return (
+    <div className="requirement-row">
+      <span className={done ? "done" : "pending"}>{done ? "✓" : "○"}</span>
+      <strong>{label}</strong>
+      <small>{value}</small>
+    </div>
   );
 }
