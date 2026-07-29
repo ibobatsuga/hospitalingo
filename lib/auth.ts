@@ -164,7 +164,7 @@ export async function createInitialAdmin(
     .prepare(`INSERT INTO app_users (
       id, email, display_name, password_hash, password_salt, password_iterations,
       role, status, must_change_password, created_at, updated_at
-    ) SELECT ?, ?, ?, ?, ?, ?, 'admin', 'active', 0, ?, ?
+    ) SELECT ?, ?, ?, ?, ?, ?, 'admin', 'active', 1, ?, ?
     WHERE NOT EXISTS (SELECT 1 FROM app_users)`)
     .bind(
       userId,
