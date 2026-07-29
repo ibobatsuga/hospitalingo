@@ -19,8 +19,8 @@ export type HospitalityAssessment = ReturnType<typeof scoreHospitalityResponse> 
 const TEXT_MODEL = "@cf/meta/llama-3.1-8b-instruct-fp8-fast";
 const SPEECH_MODEL = "@cf/openai/whisper-large-v3-turbo";
 
-export function hasCloudflareAi(env: CloudflareAiEnv) {
-  return Boolean(env.AI || (env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_AI_TOKEN));
+export function hasCloudflareAi(env?: CloudflareAiEnv) {
+  return Boolean(env?.AI || (env?.CLOUDFLARE_ACCOUNT_ID && env?.CLOUDFLARE_AI_TOKEN));
 }
 
 async function runModel(env: CloudflareAiEnv, model: string, input: unknown) {

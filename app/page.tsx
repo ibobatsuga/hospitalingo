@@ -34,7 +34,7 @@ const defaultProgress: Progress = {
 };
 
 export default function Home() {
-  const [view, setView] = useState<"today" | "lesson" | "progress" | "users">("today");
+  const [view, setView] = useState<"today" | "lesson" | "talk" | "progress" | "users">("today");
   const [authMode, setAuthMode] = useState<AuthMode>("loading");
   const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
   const [setupAvailable, setSetupAvailable] = useState(false);
@@ -53,6 +53,8 @@ export default function Home() {
   const [saving, setSaving] = useState(false);
   const [assessing, setAssessing] = useState(false);
   const [recordingTarget, setRecordingTarget] = useState<RecordingTarget | null>(null);
+  const [recordingPaused, setRecordingPaused] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [transcribingTarget, setTranscribingTarget] = useState<RecordingTarget | null>(null);
   const [composer, setComposer] = useState("");
   const [notice, setNotice] = useState("Your Cloudflare-powered learning plan is ready.");
@@ -60,6 +62,7 @@ export default function Home() {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recordingChunksRef = useRef<Blob[]>([]);
   const recordingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recordingClockRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const lesson = useMemo(() => getLesson(domain, progress.currentLesson), [domain, progress.currentLesson]);
   const terms = useMemo(() => getTerms(lesson.termIds), [lesson.termIds]);
@@ -109,6 +112,11 @@ export default function Home() {
       .catch(() => setAiAvailable(false));
     return () => window.clearTimeout(authTimer);
   }, [refreshAuth]);
+
+  useEffect(() => () => {
+    if (recordingClockRef.current) clearInterval(recordingClockRef.current);
+    if (recordingTimeoutRef.current) clearTimeout(recordingTimeoutRef.current);
+  }, []);
 
   async function signOut() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -245,13 +253,18 @@ export default function Home() {
       };
       recorder.onstop = () => {
         if (recordingTimeoutRef.current) clearTimeout(recordingTimeoutRef.current);
+        if (recordingClockRef.current) clearInterval(recordingClockRef.current);
         stream.getTracks().forEach((track) => track.stop());
         const blob = new Blob(recordingChunksRef.current, { type: recorder.mimeType || "audio/webm" });
         recorderRef.current = null;
         setRecordingTarget(null);
+        setRecordingPaused(false);
         void transcribeRecording(blob, target);
       };
       recorder.start(250);
+      setRecordingSeconds(0);
+      setRecordingPaused(false);
+      recordingClockRef.current = setInterval(() => setRecordingSeconds((seconds) => seconds + 1), 1000);
       recordingTimeoutRef.current = setTimeout(() => {
         if (recorder.state === "recording") recorder.stop();
       }, 60_000);
@@ -259,6 +272,20 @@ export default function Home() {
       setNotice("Recording… Speak naturally, then tap Stop recording.");
     } catch {
       setNotice("Microphone permission was not granted. You can type the confirmed transcript instead.");
+    }
+  }
+
+  function toggleRecordingPause() {
+    const recorder = recorderRef.current;
+    if (!recorder || !recordingTarget) return;
+    if (recorder.state === "recording") {
+      recorder.pause();
+      setRecordingPaused(true);
+      if (recordingClockRef.current) clearInterval(recordingClockRef.current);
+    } else if (recorder.state === "paused") {
+      recorder.resume();
+      setRecordingPaused(false);
+      recordingClockRef.current = setInterval(() => setRecordingSeconds((seconds) => seconds + 1), 1000);
     }
   }
 
@@ -337,7 +364,7 @@ export default function Home() {
   }
 
   return (
-    <main className="app-frame">
+    <main className={`app-frame view-${view}`}>
       <header className="app-header">
         <button className="app-identity" onClick={() => setView("today")} aria-label="Open HospitaLingo home">
           <span className="app-mark">H</span>
@@ -347,58 +374,150 @@ export default function Home() {
           </span>
         </button>
         <div className="header-actions">
-          {currentUser?.role === "admin" && (
-            <button className="text-action" onClick={() => setView("users")}>Manage accounts</button>
-          )}
           <Badge color={aiAvailable ? "success" : "secondary"} variant="soft" pill>
-            {aiAvailable ? "Cloudflare AI connected" : "Cloudflare AI preview"}
+            {aiAvailable ? "AI ready" : "AI preview"}
           </Badge>
-          <div className="user-menu">
-            <span>{currentUser?.displayName}</span>
-            <button className="text-action" onClick={signOut}>Sign out</button>
-          </div>
+          <button className="notification-button" type="button" aria-label="Notifications"><Icon name="bell" /></button>
+          <button className="profile-chip" type="button" onClick={() => currentUser?.role === "admin" ? setView("users") : setView("progress")}>
+            <span>{initials(currentUser?.displayName)}</span>
+            <strong>{currentUser?.displayName?.split(" ")[0] ?? "Learner"}</strong>
+          </button>
+          <button className="signout-button" type="button" onClick={signOut}>Sign out</button>
         </div>
       </header>
 
       <section className="conversation" aria-live="polite">
-        <article className="assistant-turn">
+        {view !== "today" && view !== "talk" && <article className="assistant-turn">
           <div className="assistant-avatar" aria-hidden="true">H</div>
           <div className="turn-content">
             <p className="assistant-name">HospitaLingo</p>
             <p>{notice}</p>
           </div>
-        </article>
+        </article>}
 
         {view === "today" && (
-          <section className="surface today-card" aria-labelledby="today-title">
-            <div className="surface-topline">
-              <Badge color={domain === "hotel" ? "info" : "success"} variant="soft" pill>
-                {domain === "hotel" ? "Hotel Service" : "Restaurant Service"}
-              </Badge>
-              <span>Lesson {Math.min(50, progress.currentLesson)} of 50</span>
-            </div>
-            <div className="today-copy">
-              <p className="eyebrow">RECOMMENDED NEXT</p>
-              <h1 id="today-title">{lesson.title}</h1>
-              <p>{lesson.subtitle}. Complete all five learning steps in about {lesson.durationMinutes} minutes.</p>
-            </div>
-            <div className="progress-block">
-              <div className="progress-label">
-                <span>Certificate pathway</span>
-                <strong>{totalCompleted}/50 lessons</strong>
+          <section className="home-dashboard" aria-labelledby="today-title">
+            <div className="home-hero">
+              <div className="mobile-greeting">
+                <span className="avatar-bubble">{initials(currentUser?.displayName)}</span>
+                <div><small>Welcome back</small><strong>Hello, {currentUser?.displayName?.split(" ")[0] ?? "Learner"}</strong></div>
+                <button className="notification-button light" type="button" aria-label="Notifications"><Icon name="bell" /></button>
+                <button className="notification-button light" type="button" onClick={signOut} aria-label="Sign out"><Icon name="logout" /></button>
               </div>
-              <div className="progress-track" aria-label={`${completionPercent}% complete`}>
-                <span style={{ width: `${completionPercent}%` }} />
-              </div>
-              <div className="domain-counts">
-                <span>Hotel {progress.hotelCompleted}/25</span>
-                <span>Restaurant {progress.restaurantCompleted}/25</span>
-              </div>
+              <p className="hero-kicker">HOSPITALITY ENGLISH</p>
+              <h1 id="today-title">Ready to serve with confidence?</h1>
+              <form className="hero-search" onSubmit={handleComposer}>
+                <Icon name="search" />
+                <label htmlFor="composer">Ask HospitaLingo</label>
+                <input
+                  id="composer"
+                  value={composer}
+                  onChange={(event) => setComposer(event.target.value)}
+                  placeholder="Search or ask your AI coach"
+                />
+                <button type="submit" aria-label="Send"><Icon name="arrow" /></button>
+              </form>
             </div>
-            <div className="surface-actions">
-              <Button color="primary" size="lg" onClick={() => resetLesson(domain)}>Continue lesson</Button>
-              <Button color="secondary" variant="outline" size="lg" onClick={() => setView("progress")}>View progress</Button>
+
+            <div className="dashboard-body">
+              <article className="journey-card">
+                <div className="journey-heading">
+                  <div><p>Your hospitality English begins here!</p><span>You&apos;re building real service confidence.</span></div>
+                  <button type="button" onClick={() => setView("progress")} aria-label="View progress"><Icon name="chevron" /></button>
+                </div>
+                <div className="journey-progress">
+                  <div><span>Learning progress</span><strong>{totalCompleted}/50 lessons</strong></div>
+                  <div className="progress-track" aria-label={`${completionPercent}% complete`}><span style={{ width: `${completionPercent}%` }} /></div>
+                </div>
+                <button className="continue-card" type="button" onClick={() => resetLesson(domain)}>
+                  <span className="continue-icon"><Icon name={domain === "hotel" ? "hotel" : "restaurant"} /></span>
+                  <span><small>CONTINUE LEARNING</small><strong>{lesson.title}</strong><em>{lesson.subtitle}</em></span>
+                  <Badge color="success" variant="soft" pill>Lesson {Math.min(50, progress.currentLesson)}</Badge>
+                </button>
+              </article>
+
+              <section className="learning-section" aria-labelledby="learning-title">
+                <div className="section-heading"><div><p id="learning-title">Choose another practice</p><span>About 15 minutes each</span></div><button type="button" onClick={() => setView("progress")}>See all</button></div>
+                <div className="practice-grid">
+                  <article className="practice-card hotel-card">
+                    <span className="practice-icon"><Icon name="hotel" /></span>
+                    <div><small>HOTEL</small><h2>Front Office</h2><p>Welcome, assist, and solve guest requests.</p></div>
+                    <Button color="primary" onClick={() => resetLesson("hotel")}>Start learning</Button>
+                  </article>
+                  <article className="practice-card restaurant-card">
+                    <span className="practice-icon"><Icon name="restaurant" /></span>
+                    <div><small>RESTAURANT</small><h2>Restaurant Service</h2><p>Take orders and handle dietary needs safely.</p></div>
+                    <Button color="primary" onClick={() => resetLesson("restaurant")}>Start learning</Button>
+                  </article>
+                </div>
+              </section>
+
+              <section className="quiz-section">
+                <div className="section-heading"><div><p>Quiz and test</p><span>Keep your knowledge fresh</span></div><button type="button" onClick={() => resetLesson(domain)}>See all</button></div>
+                <button className="quiz-card" type="button" onClick={() => resetLesson(domain)}>
+                  <span className="quiz-icon"><Icon name="briefcase" /></span>
+                  <span><small>BASIC VOCABULARY</small><strong>Hospitality<br />Vocabulary Challenge</strong><em>12 questions · 8 minutes</em></span>
+                  <span className="quiz-arrow"><Icon name="arrow" /></span>
+                </button>
+              </section>
+
+              <div className="notice-strip"><Icon name="sparkle" /><span>{notice}</span></div>
             </div>
+            <button className="talk-fab" type="button" onClick={() => setView("talk")}><Icon name="mic" /><span>Talk with AI</span></button>
+          </section>
+        )}
+
+        {view === "talk" && (
+          <section className="talk-screen" aria-labelledby="talk-title">
+            <div className="talk-heading">
+              <button type="button" onClick={() => setView("today")} aria-label="Back to home"><Icon name="chevron-left" /></button>
+              <div><small>AI SPEAKING COACH</small><h1 id="talk-title">Talk With AI</h1></div>
+              <Badge color={aiAvailable ? "success" : "secondary"} variant="soft" pill>{aiAvailable ? "Ready" : "Preview"}</Badge>
+            </div>
+            <div className="talk-layout">
+              <article className={`talk-card ${recordingTarget === "speaking" ? "is-recording" : ""}`}>
+                <div className="mic-stage">
+                  <span className="ring ring-three" /><span className="ring ring-two" /><span className="ring ring-one" />
+                  <button
+                    className="mic-core"
+                    type="button"
+                    onClick={() => toggleRecording("speaking")}
+                    disabled={Boolean(transcribingTarget)}
+                    aria-label={recordingTarget === "speaking" ? "Stop recording" : "Start speaking"}
+                  ><Icon name={recordingTarget === "speaking" ? "stop" : "mic"} /></button>
+                </div>
+                <div className="talk-instruction">
+                  <h2>{recordingTarget === "speaking" ? "I’m listening…" : transcribingTarget === "speaking" ? "Turning your voice into text…" : "Press the button to speak with AI"}</h2>
+                  <p>Practice a real hotel or restaurant conversation. You can review the transcript before AI assessment.</p>
+                </div>
+                {recordingTarget === "speaking" && (
+                  <div className="live-recorder">
+                    <button type="button" onClick={toggleRecordingPause} aria-label={recordingPaused ? "Resume recording" : "Pause recording"}>{recordingPaused ? <Icon name="play" /> : <Icon name="pause" />}</button>
+                    <Icon name="mic" />
+                    <span className={`waveform ${recordingPaused ? "paused" : ""}`}>{[10, 20, 13, 27, 18, 32, 16, 25, 12, 22, 15].map((height, index) => <i key={index} style={{ height }} />)}</span>
+                    <time>{formatDuration(recordingSeconds)}</time>
+                    <button className="stop-button" type="button" onClick={() => toggleRecording("speaking")} aria-label="Stop recording"><Icon name="close" /></button>
+                  </div>
+                )}
+                {!recordingTarget && <p className="privacy-note">Your raw audio is processed temporarily and is not saved.</p>}
+              </article>
+
+              <aside className="talk-transcript">
+                <p className="activity-label">YOUR PRACTICE</p>
+                <h2>{lesson.speakingPrompt}</h2>
+                <label className="transcript-field">
+                  <span>Confirmed transcript</span>
+                  <textarea value={transcript} onChange={(event) => { setTranscript(event.target.value); setSpeakingFeedback(null); }} placeholder="Your recording will appear here. You can also type your response…" rows={5} />
+                </label>
+                {rawSpeakingTranscript && rawSpeakingTranscript !== transcript && <RawTranscript text={rawSpeakingTranscript} onUse={() => { setTranscript(rawSpeakingTranscript); setSpeakingFeedback(null); }} />}
+                {speakingFeedback && <FeedbackCard feedback={speakingFeedback} modelAnswer={lesson.modelAnswer} />}
+                <div className="surface-actions">
+                  <Button color="primary" size="lg" loading={assessing} disabled={!transcript.trim()} onClick={confirmTranscript}>Assess my response</Button>
+                  <Button color="secondary" variant="outline" size="lg" onClick={() => { setTranscript(""); setSpeakingFeedback(null); }}>Clear</Button>
+                </div>
+              </aside>
+            </div>
+            <button className="back-home-button" type="button" onClick={() => setView("today")}>Back to Home</button>
           </section>
         )}
 
@@ -682,21 +801,49 @@ export default function Home() {
         )}
       </section>
 
-      <form className="preview-composer" onSubmit={handleComposer}>
-          <label htmlFor="composer">Ask HospitaLingo</label>
-          <div>
-            <input
-              id="composer"
-              value={composer}
-              onChange={(event) => setComposer(event.target.value)}
-              placeholder="Start lesson, hotel practice, or show progress…"
-            />
-            <button type="submit" aria-label="Send">↑</button>
-          </div>
-          <small>Standalone HospitaLingo · AI and speech powered by Cloudflare</small>
-        </form>
+      {view !== "talk" && <nav className="bottom-nav" aria-label="Main navigation">
+        <button className={view === "today" ? "active" : ""} type="button" onClick={() => setView("today")}><Icon name="home" /><span>Home</span></button>
+        <button className={view === "lesson" ? "active" : ""} type="button" onClick={() => resetLesson(domain)}><Icon name="book" /><span>Learn</span></button>
+        <button className="nav-talk" type="button" onClick={() => setView("talk")}><Icon name="mic" /><span>Talk</span></button>
+        <button className={view === "progress" ? "active" : ""} type="button" onClick={() => setView("progress")}><Icon name="chart" /><span>Progress</span></button>
+        <button className={view === "users" ? "active" : ""} type="button" onClick={() => currentUser?.role === "admin" ? setView("users") : setView("progress")}><Icon name="user" /><span>{currentUser?.role === "admin" ? "Admin" : "Profile"}</span></button>
+      </nav>}
     </main>
   );
+}
+
+function initials(name?: string) {
+  return (name || "HL").split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
+}
+
+function formatDuration(seconds: number) {
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+function Icon({ name }: { name: string }) {
+  const common = { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.9, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
+  const paths: Record<string, ReactNode> = {
+    bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></>,
+    search: <><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></>,
+    arrow: <><path d="M5 12h14"/><path d="m14 7 5 5-5 5"/></>,
+    chevron: <path d="m9 18 6-6-6-6"/>,
+    "chevron-left": <path d="m15 18-6-6 6-6"/>,
+    hotel: <><path d="M4 21V5h10v16"/><path d="M14 10h6v11M8 9h2M8 13h2M8 17h2M17 14h1M17 18h1M2 21h20"/></>,
+    restaurant: <><path d="M7 3v8M4 3v5a3 3 0 0 0 6 0V3M7 11v10M16 3c-2 3-2 8 1 10v8M17 3v10"/></>,
+    briefcase: <><rect x="3" y="7" width="18" height="13" rx="3"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12h18M10 11v3h4v-3"/></>,
+    sparkle: <><path d="m12 3 1.3 3.7L17 8l-3.7 1.3L12 13l-1.3-3.7L7 8l3.7-1.3L12 3Z"/><path d="m5 14 .8 2.2L8 17l-2.2.8L5 20l-.8-2.2L2 17l2.2-.8L5 14ZM19 13l.6 1.4L21 15l-1.4.6L19 17l-.6-1.4L17 15l1.4-.6L19 13Z"/></>,
+    mic: <><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6"/></>,
+    stop: <rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor" stroke="none"/>,
+    pause: <><path d="M9 5v14M15 5v14"/></>,
+    play: <path d="m8 5 11 7-11 7V5Z" fill="currentColor" stroke="none"/>,
+    close: <><path d="m6 6 12 12M18 6 6 18"/></>,
+    home: <><path d="m3 11 9-8 9 8"/><path d="M5 10v10h14V10M9 20v-6h6v6"/></>,
+    book: <><path d="M4 5a3 3 0 0 1 3-3h5v18H7a3 3 0 0 0-3 2V5Z"/><path d="M20 5a3 3 0 0 0-3-3h-5v18h5a3 3 0 0 1 3 2V5Z"/></>,
+    chart: <><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></>,
+    user: <><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></>,
+    logout: <><path d="M10 17l5-5-5-5M15 12H3M15 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4"/></>,
+  };
+  return <svg {...common}>{paths[name] ?? paths.sparkle}</svg>;
 }
 
 function AuthShell({ children }: { children: ReactNode }) {

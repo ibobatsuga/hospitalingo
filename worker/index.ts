@@ -121,9 +121,9 @@ function jsonWithCookie(payload: unknown, cookie: string, status = 200) {
 }
 
 async function handleAuthStatus(request: Request, env: Env) {
+  const demo = localDemoUser(request);
+  if (demo) return Response.json({ authenticated: true, user: demo, setupRequired: false });
   if (!env.DB) {
-    const demo = localDemoUser(request);
-    if (demo) return Response.json({ authenticated: true, user: demo, setupRequired: false });
     return Response.json({ error: "Account database is unavailable." }, { status: 503 });
   }
   const user = await getAuthenticatedUser(request, env.DB);
@@ -288,7 +288,8 @@ async function handleTranscriptionRequest(request: Request, env: Env) {
 // const imageConfig: ImageConfig = { dangerouslyAllowSVG: true };
 
 const worker = {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, env: Env | undefined, ctx: ExecutionContext): Promise<Response> {
+    env = env ?? ({} as Env);
     const url = new URL(request.url);
 
     if (url.pathname === "/_vinext/image") {
