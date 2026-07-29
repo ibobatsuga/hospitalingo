@@ -2,12 +2,22 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 import { z } from "zod";
+import {
+  assessWithCloudflare,
+  cloudflareAiModels,
+  hasCloudflareAi,
+  transcribeWithCloudflare,
+  type AiBinding,
+} from "../lib/cloudflare-ai";
 import { completeLearnerLesson, getLearnerProgress } from "../lib/progress";
-import { handleMcpRequest } from "../mcp/server";
 
 interface Env {
   ASSETS: Fetcher;
   DB?: D1Database;
+  CONTENT?: R2Bucket;
+  AI?: AiBinding;
+  CLOUDFLARE_ACCOUNT_ID?: string;
+  CLOUDFLARE_AI_TOKEN?: string;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -27,6 +37,14 @@ const completionSchema = z.object({
   domain: z.enum(["hotel", "restaurant"]),
   score: z.number().int().min(0).max(100),
   criticalError: z.boolean().default(false),
+});
+
+const assessmentSchema = z.object({
+  domain: z.enum(["hotel", "restaurant"]),
+  transcript: z.string().trim().min(2).max(3000),
+  task: z.enum(["speaking", "role_practice"]),
+  prompt: z.string().max(1000).optional(),
+  safetyRule: z.string().max(1000).optional(),
 });
 
 function learnerIdFor(request: Request) {
@@ -63,6 +81,34 @@ async function handleProgressRequest(request: Request, env: Env) {
   return new Response("Method not allowed", { status: 405, headers: { allow: "GET, POST" } });
 }
 
+async function handleAssessmentRequest(request: Request, env: Env) {
+  if (request.method !== "POST") {
+    return new Response("Method not allowed", { status: 405, headers: { allow: "POST" } });
+  }
+  const parsed = assessmentSchema.safeParse(await request.json());
+  if (!parsed.success) return Response.json({ error: "The confirmed transcript is invalid." }, { status: 400 });
+  return Response.json(await assessWithCloudflare(env, parsed.data));
+}
+
+async function handleTranscriptionRequest(request: Request, env: Env) {
+  if (request.method !== "POST") {
+    return new Response("Method not allowed", { status: 405, headers: { allow: "POST" } });
+  }
+  if (!hasCloudflareAi(env)) {
+    return Response.json({ error: "Cloudflare speech recognition is not connected yet." }, { status: 503 });
+  }
+  const form = await request.formData();
+  const audio = form.get("audio");
+  if (!(audio instanceof File)) return Response.json({ error: "No recording was received." }, { status: 400 });
+  if (audio.size > 10 * 1024 * 1024) return Response.json({ error: "Recording must be under 10 MB." }, { status: 413 });
+  try {
+    const text = await transcribeWithCloudflare(env, await audio.arrayBuffer());
+    return Response.json({ text, provider: "cloudflare-workers-ai" });
+  } catch {
+    return Response.json({ error: "The recording could not be transcribed. Please try again or type the confirmed transcript." }, { status: 502 });
+  }
+}
+
 // Image security config. SVG sources with .svg extension auto-skip the
 // optimization endpoint on the client side (served directly, no proxy).
 // To route SVGs through the optimizer (with security headers), set
@@ -84,16 +130,29 @@ const worker = {
       }, allowedWidths);
     }
 
-    if (url.pathname === "/mcp") {
-      return handleMcpRequest(request, env);
-    }
-
     if (url.pathname === "/api/progress") {
       return handleProgressRequest(request, env);
     }
 
+    if (url.pathname === "/api/assess") {
+      return handleAssessmentRequest(request, env);
+    }
+
+    if (url.pathname === "/api/transcribe") {
+      return handleTranscriptionRequest(request, env);
+    }
+
+    if (url.pathname === "/api/ai-status") {
+      return Response.json({
+        available: hasCloudflareAi(env),
+        provider: "Cloudflare Workers AI",
+        models: cloudflareAiModels,
+        audioRetention: "transient",
+      });
+    }
+
     if (url.pathname === "/health") {
-      return Response.json({ status: "ok", service: "hospitalingo", mcp: "/mcp" });
+      return Response.json({ status: "ok", service: "hospitalingo", architecture: "cloudflare-native" });
     }
 
     return handler.fetch(request, env, ctx);

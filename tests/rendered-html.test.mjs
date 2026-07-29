@@ -14,7 +14,7 @@ async function loadWorker() {
 const context = { waitUntil() {}, passThroughOnException() {} };
 const assets = { fetch: async () => new Response("Not found", { status: 404 }) };
 
-test("renders the ChatGPT-native HospitaLingo learning experience", async () => {
+test("renders the Cloudflare-native HospitaLingo learning experience", async () => {
   const worker = await loadWorker();
   const response = await worker.fetch(
     new Request("http://localhost/", { headers: { accept: "text/html" } }),
@@ -30,65 +30,41 @@ test("renders the ChatGPT-native HospitaLingo learning experience", async () => 
   assert.match(html, /Handle an allergy request/i);
   assert.match(html, /Certificate pathway/i);
   assert.match(html, /Continue lesson/i);
+  assert.match(html, /Cloudflare AI/i);
   assert.doesNotMatch(html, /class="sidebar"|codex-preview|react-loading-skeleton/i);
 });
 
-test("advertises the HospitaLingo MCP tool contract", async () => {
+test("advertises Cloudflare AI status and keeps a safe assessment fallback", async () => {
   const worker = await loadWorker();
   const runtimeEnv = { ASSETS: assets };
-  const headers = {
-    accept: "application/json, text/event-stream",
-    "content-type": "application/json",
-  };
+  const status = await worker.fetch(new Request("http://localhost/api/ai-status"), runtimeEnv, context);
+  assert.equal(status.status, 200);
+  const statusPayload = await status.json();
+  assert.equal(statusPayload.provider, "Cloudflare Workers AI");
+  assert.equal(statusPayload.available, false);
+  assert.equal(statusPayload.audioRetention, "transient");
 
-  const initialize = await worker.fetch(
-    new Request("http://localhost/mcp", {
+  const assessed = await worker.fetch(
+    new Request("http://localhost/api/assess", {
       method: "POST",
-      headers,
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "initialize",
-        params: {
-          protocolVersion: "2025-06-18",
-          capabilities: {},
-          clientInfo: { name: "hospitalingo-test", version: "1.0.0" },
-        },
+        domain: "restaurant",
+        task: "speaking",
+        transcript: "Thank you for telling me. Let me check the ingredients with the kitchen.",
       }),
     }),
     runtimeEnv,
     context,
   );
-  assert.equal(initialize.status, 200);
-  const initialized = await initialize.json();
-  assert.equal(initialized.result.serverInfo.name, "hospitalingo");
-
-  const listed = await worker.fetch(
-    new Request("http://localhost/mcp", {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }),
-    }),
-    runtimeEnv,
-    context,
-  );
-  assert.equal(listed.status, 200);
-  const payload = await listed.json();
-  const toolNames = payload.result.tools.map((tool) => tool.name);
-  for (const required of [
-    "start_onboarding",
-    "get_daily_lesson",
-    "search_hospitality_terms",
-    "get_role_scenario",
-    "submit_learning_attempt",
-    "get_progress",
-    "render_learning_card",
-  ]) {
-    assert.ok(toolNames.includes(required), `missing MCP tool: ${required}`);
-  }
+  assert.equal(assessed.status, 200);
+  const feedback = await assessed.json();
+  assert.equal(feedback.provider, "rules-fallback");
+  assert.equal(feedback.criticalError, false);
+  assert.ok(feedback.score >= 75);
 });
 
-test("keeps product metadata, persistence, and official UI foundations", async () => {
+test("keeps product metadata and Cloudflare persistence foundations", async () => {
   const [page, layout, packageJson, hosting] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
@@ -98,11 +74,12 @@ test("keeps product metadata, persistence, and official UI foundations", async (
 
   assert.match(page, /25 Restaurant lessons/);
   assert.match(page, /confirmed transcript/i);
+  assert.match(page, /Record answer/i);
   assert.match(layout, /HospitaLingo/);
-  assert.match(packageJson, /@openai\/apps-sdk-ui/);
-  assert.match(packageJson, /@modelcontextprotocol\/sdk/);
+  assert.doesNotMatch(packageJson, /@openai\/apps-sdk-ui/);
+  assert.doesNotMatch(packageJson, /@modelcontextprotocol\/sdk/);
   assert.match(hosting, /"d1": "DB"/);
+  assert.match(hosting, /"r2": "CONTENT"/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
   await assert.rejects(access(new URL("../app/_sites-preview", projectRoot)));
 });
-

@@ -1,8 +1,6 @@
 "use client";
 
-import { Badge } from "@openai/apps-sdk-ui/components/Badge";
-import { Button } from "@openai/apps-sdk-ui/components/Button";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, type ButtonHTMLAttributes, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { getLesson, getTerms, scoreHospitalityResponse, type Domain } from "../lib/content";
 
 type Progress = {
@@ -13,6 +11,11 @@ type Progress = {
 };
 
 type Step = "Vocabulary" | "Listening" | "Grammar" | "Speaking" | "Role Practice";
+type RecordingTarget = "speaking" | "role";
+type Assessment = ReturnType<typeof scoreHospitalityResponse> & {
+  modelAnswer?: string;
+  provider?: "cloudflare-workers-ai" | "rules-fallback";
+};
 
 const steps: Step[] = ["Vocabulary", "Listening", "Grammar", "Speaking", "Role Practice"];
 const defaultProgress: Progress = {
@@ -30,14 +33,19 @@ export default function Home() {
   const [listeningAnswer, setListeningAnswer] = useState<number | null>(null);
   const [grammarAnswer, setGrammarAnswer] = useState<number | null>(null);
   const [transcript, setTranscript] = useState("");
-  const [speakingFeedback, setSpeakingFeedback] = useState<ReturnType<typeof scoreHospitalityResponse> | null>(null);
+  const [speakingFeedback, setSpeakingFeedback] = useState<Assessment | null>(null);
   const [roleResponse, setRoleResponse] = useState("");
-  const [roleFeedback, setRoleFeedback] = useState<ReturnType<typeof scoreHospitalityResponse> | null>(null);
+  const [roleFeedback, setRoleFeedback] = useState<Assessment | null>(null);
   const [lessonComplete, setLessonComplete] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [assessing, setAssessing] = useState(false);
+  const [recordingTarget, setRecordingTarget] = useState<RecordingTarget | null>(null);
+  const [transcribingTarget, setTranscribingTarget] = useState<RecordingTarget | null>(null);
   const [composer, setComposer] = useState("");
-  const [notice, setNotice] = useState("Your learning plan is ready.");
-  const [embedded, setEmbedded] = useState(false);
+  const [notice, setNotice] = useState("Your Cloudflare-powered learning plan is ready.");
+  const [aiAvailable, setAiAvailable] = useState(false);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const recordingChunksRef = useRef<Blob[]>([]);
 
   const lesson = useMemo(() => getLesson(domain, progress.currentLesson), [domain, progress.currentLesson]);
   const terms = useMemo(() => getTerms(lesson.termIds), [lesson.termIds]);
@@ -46,7 +54,6 @@ export default function Home() {
   const completionPercent = Math.min(100, Math.round((totalCompleted / 50) * 100));
 
   useEffect(() => {
-    const frame = window.requestAnimationFrame(() => setEmbedded(window.parent !== window));
     fetch("/api/progress")
       .then((response) => (response.ok ? response.json() : Promise.reject()))
       .then((data: Progress) => {
@@ -54,7 +61,10 @@ export default function Home() {
         setDomain(data.hotelCompleted <= data.restaurantCompleted ? "hotel" : "restaurant");
       })
       .catch(() => setNotice("Demo progress is active. Your hosted account will sync automatically."));
-    return () => window.cancelAnimationFrame(frame);
+    fetch("/api/ai-status")
+      .then((response) => response.json())
+      .then((data: { available?: boolean }) => setAiAvailable(Boolean(data.available)))
+      .catch(() => setAiAvailable(false));
   }, []);
 
   function resetLesson(nextDomain = domain) {
@@ -86,16 +96,102 @@ export default function Home() {
     setStepIndex((index) => Math.min(steps.length - 1, index + 1));
   }
 
-  function confirmTranscript() {
-    setSpeakingFeedback(scoreHospitalityResponse(transcript, domain));
+  async function requestAssessment(text: string, task: "speaking" | "role_practice") {
+    setAssessing(true);
+    try {
+      const response = await fetch("/api/assess", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          domain,
+          transcript: text,
+          task,
+          prompt: task === "speaking" ? lesson.speakingPrompt : lesson.roleScenario.guestMessage,
+          safetyRule: lesson.roleScenario.safetyRule,
+        }),
+      });
+      if (!response.ok) throw new Error("Assessment unavailable");
+      const feedback = (await response.json()) as Assessment;
+      if (feedback.provider === "rules-fallback") {
+        setNotice("Cloudflare AI is not connected in this deployment, so the safety rubric was used as a fallback.");
+      }
+      return feedback;
+    } catch {
+      setNotice("AI assessment is temporarily unavailable. The safety rubric was used instead.");
+      return { ...scoreHospitalityResponse(text, domain), provider: "rules-fallback" as const };
+    } finally {
+      setAssessing(false);
+    }
+  }
+
+  async function confirmTranscript() {
+    setSpeakingFeedback(await requestAssessment(transcript, "speaking"));
+  }
+
+  async function transcribeRecording(blob: Blob, target: RecordingTarget) {
+    setTranscribingTarget(target);
+    try {
+      const form = new FormData();
+      form.append("audio", blob, "hospitalingo-recording.webm");
+      const response = await fetch("/api/transcribe", { method: "POST", body: form });
+      const payload = (await response.json()) as { text?: string; error?: string };
+      if (!response.ok || !payload.text) throw new Error(payload.error || "No transcript returned.");
+      if (target === "speaking") {
+        setTranscript(payload.text);
+        setSpeakingFeedback(null);
+      } else {
+        setRoleResponse(payload.text);
+        setRoleFeedback(null);
+      }
+      setNotice("Recording transcribed by Cloudflare AI. Review the transcript before assessment.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "The recording could not be transcribed. You can type the transcript instead.");
+    } finally {
+      setTranscribingTarget(null);
+    }
+  }
+
+  async function toggleRecording(target: RecordingTarget) {
+    if (recordingTarget && recorderRef.current) {
+      recorderRef.current.stop();
+      return;
+    }
+    if (!("MediaRecorder" in window) || !navigator.mediaDevices?.getUserMedia) {
+      setNotice("Microphone recording is not supported by this browser. You can type the confirmed transcript instead.");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      recorderRef.current = recorder;
+      recordingChunksRef.current = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data.size) recordingChunksRef.current.push(event.data);
+      };
+      recorder.onstop = () => {
+        stream.getTracks().forEach((track) => track.stop());
+        const blob = new Blob(recordingChunksRef.current, { type: recorder.mimeType || "audio/webm" });
+        recorderRef.current = null;
+        setRecordingTarget(null);
+        void transcribeRecording(blob, target);
+      };
+      recorder.start();
+      setRecordingTarget(target);
+      setNotice("Recording… Speak naturally, then tap Stop recording.");
+    } catch {
+      setNotice("Microphone permission was not granted. You can type the confirmed transcript instead.");
+    }
   }
 
   async function finishLesson() {
-    const feedback = scoreHospitalityResponse(roleResponse, domain);
-    setRoleFeedback(feedback);
-    if (feedback.score < 75 || feedback.criticalError) return;
-
     setSaving(true);
+    const feedback = await requestAssessment(roleResponse, "role_practice");
+    setRoleFeedback(feedback);
+    if (feedback.score < 75 || feedback.criticalError) {
+      setSaving(false);
+      return;
+    }
+
     try {
       const response = await fetch("/api/progress", {
         method: "POST",
@@ -159,7 +255,9 @@ export default function Home() {
             <small>English for Hotel &amp; Restaurant</small>
           </span>
         </button>
-        <Badge color="secondary" variant="soft" pill>Internal preview</Badge>
+        <Badge color={aiAvailable ? "success" : "secondary"} variant="soft" pill>
+          {aiAvailable ? "Cloudflare AI connected" : "Cloudflare AI preview"}
+        </Badge>
       </header>
 
       <section className="conversation" aria-live="polite">
@@ -315,7 +413,19 @@ export default function Home() {
               <div className="activity-panel narrow-panel">
                 <p className="activity-label">Speaking · confirmed transcript</p>
                 <h2>{lesson.speakingPrompt}</h2>
-                <p className="host-hint">In ChatGPT, speak or type using the native composer. This browser preview accepts the confirmed transcript directly.</p>
+                <p className="host-hint">Record your answer here. Cloudflare converts the audio to text; you can review and edit the transcript before assessment.</p>
+                <div className="recording-controls">
+                  <button
+                    type="button"
+                    className={`record-button ${recordingTarget === "speaking" ? "recording" : ""}`}
+                    onClick={() => toggleRecording("speaking")}
+                    disabled={Boolean(recordingTarget && recordingTarget !== "speaking") || Boolean(transcribingTarget)}
+                  >
+                    <span aria-hidden="true">{recordingTarget === "speaking" ? "■" : "●"}</span>
+                    {recordingTarget === "speaking" ? "Stop recording" : transcribingTarget === "speaking" ? "Transcribing…" : "Record answer"}
+                  </button>
+                  <small>Raw audio is processed transiently and is not saved to your learning record.</small>
+                </div>
                 <label className="transcript-field">
                   <span>Your confirmed transcript</span>
                   <textarea
@@ -335,7 +445,7 @@ export default function Home() {
                   {speakingFeedback?.score && speakingFeedback.score >= 75 && !speakingFeedback.criticalError ? (
                     <Button color="primary" size="lg" onClick={continueStep}>Continue</Button>
                   ) : (
-                    <Button color="primary" size="lg" disabled={!transcript.trim()} onClick={confirmTranscript}>Confirm transcript</Button>
+                    <Button color="primary" size="lg" loading={assessing} disabled={!transcript.trim()} onClick={confirmTranscript}>Confirm transcript</Button>
                   )}
                   {speakingFeedback && (
                     <Button color="secondary" variant="outline" size="lg" onClick={() => { setTranscript(""); setSpeakingFeedback(null); }}>Try again</Button>
@@ -364,6 +474,17 @@ export default function Home() {
                     rows={4}
                   />
                 </label>
+                <div className="recording-controls compact">
+                  <button
+                    type="button"
+                    className={`record-button ${recordingTarget === "role" ? "recording" : ""}`}
+                    onClick={() => toggleRecording("role")}
+                    disabled={Boolean(recordingTarget && recordingTarget !== "role") || Boolean(transcribingTarget)}
+                  >
+                    <span aria-hidden="true">{recordingTarget === "role" ? "■" : "●"}</span>
+                    {recordingTarget === "role" ? "Stop recording" : transcribingTarget === "role" ? "Transcribing…" : "Record response"}
+                  </button>
+                </div>
                 {roleFeedback && <FeedbackCard feedback={roleFeedback} modelAnswer={lesson.modelAnswer} />}
                 <div className="surface-actions end">
                   <Button color="primary" size="lg" loading={saving} disabled={!roleResponse.trim()} onClick={finishLesson}>
@@ -439,8 +560,7 @@ export default function Home() {
         )}
       </section>
 
-      {!embedded && (
-        <form className="preview-composer" onSubmit={handleComposer}>
+      <form className="preview-composer" onSubmit={handleComposer}>
           <label htmlFor="composer">Ask HospitaLingo</label>
           <div>
             <input
@@ -451,9 +571,8 @@ export default function Home() {
             />
             <button type="submit" aria-label="Send">↑</button>
           </div>
-          <small>Browser preview · ChatGPT uses its own native composer and voice input.</small>
+          <small>Standalone HospitaLingo · AI and speech powered by Cloudflare</small>
         </form>
-      )}
     </main>
   );
 }
@@ -462,7 +581,7 @@ function FeedbackCard({
   feedback,
   modelAnswer,
 }: {
-  feedback: ReturnType<typeof scoreHospitalityResponse>;
+  feedback: Assessment;
   modelAnswer: string;
 }) {
   return (
@@ -476,9 +595,43 @@ function FeedbackCard({
       ) : (
         <p>Your response is polite, clear, and operationally safe.</p>
       )}
-      <div className="model-answer"><strong>Natural model response</strong><p>“{modelAnswer}”</p></div>
+      <div className="model-answer"><strong>Natural model response</strong><p>“{feedback.modelAnswer ?? modelAnswer}”</p></div>
+      <small className="assessment-source">{feedback.provider === "cloudflare-workers-ai" ? "Assessed by Cloudflare AI" : "Safety-rubric fallback"}</small>
     </div>
   );
+}
+
+function Button({
+  children,
+  loading,
+  color = "primary",
+  variant = "solid",
+  size = "md",
+  ...props
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
+  children: ReactNode;
+  loading?: boolean;
+  color?: "primary" | "secondary";
+  variant?: "solid" | "outline";
+  size?: "md" | "lg";
+}) {
+  return (
+    <button {...props} className={`product-button ${color} ${variant} ${size}`}>
+      {loading ? "Working…" : children}
+    </button>
+  );
+}
+
+function Badge({
+  children,
+  color = "secondary",
+}: {
+  children: ReactNode;
+  color?: "secondary" | "success" | "info";
+  variant?: "soft" | "outline";
+  pill?: boolean;
+}) {
+  return <span className={`product-badge ${color}`}>{children}</span>;
 }
 
 function Requirement({ label, value, done }: { label: string; value: string; done: boolean }) {
