@@ -57,7 +57,7 @@ export default function Home() {
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [transcribingTarget, setTranscribingTarget] = useState<RecordingTarget | null>(null);
   const [composer, setComposer] = useState("");
-  const [notice, setNotice] = useState("Your Cloudflare-powered learning plan is ready.");
+  const [notice, setNotice] = useState("Your AI-powered learning plan is ready.");
   const [aiAvailable, setAiAvailable] = useState(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recordingChunksRef = useRef<Blob[]>([]);
@@ -173,7 +173,7 @@ export default function Home() {
       if (!response.ok) throw new Error("Assessment unavailable");
       const feedback = (await response.json()) as Assessment;
       if (feedback.provider === "rules-fallback") {
-        setNotice("Cloudflare AI is not connected in this deployment, so the safety rubric was used as a fallback.");
+        setNotice("AI assessment is not connected in this deployment, so the safety rubric was used as a fallback.");
       }
       return feedback;
     } catch {
@@ -210,8 +210,8 @@ export default function Home() {
       }
       setNotice(
         payload.normalized
-          ? "Cloudflare transcribed the recording and corrected likely hospitality-term errors. Compare the raw version before assessment."
-          : "Recording transcribed by Cloudflare AI. Review the transcript before assessment.",
+          ? "AI transcribed the recording and corrected likely hospitality-term errors. Compare the raw version before assessment."
+          : "Recording transcribed by AI. Review the transcript before assessment.",
       );
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "The recording could not be transcribed. You can type the transcript instead.");
@@ -632,7 +632,7 @@ export default function Home() {
               <div className="activity-panel narrow-panel">
                 <p className="activity-label">Speaking · confirmed transcript</p>
                 <h2>{lesson.speakingPrompt}</h2>
-                <p className="host-hint">Record your answer here. Cloudflare converts the audio to text; you can review and edit the transcript before assessment.</p>
+                <p className="host-hint">Record your answer here. AI converts the audio to text; you can review and edit the transcript before assessment.</p>
                 <div className="recording-controls">
                   <button
                     type="button"
@@ -1127,7 +1127,7 @@ function FeedbackCard({
         <p>Your response is polite, clear, and operationally safe.</p>
       )}
       <div className="model-answer"><strong>Natural model response</strong><p>“{feedback.modelAnswer ?? modelAnswer}”</p></div>
-      <small className="assessment-source">{feedback.provider === "cloudflare-workers-ai" ? "Assessed by Cloudflare AI" : "Safety-rubric fallback"}</small>
+      <small className="assessment-source">{feedback.provider === "cloudflare-workers-ai" ? "Assessed by HospitaLingo AI" : "Safety-rubric fallback"}</small>
     </div>
   );
 }

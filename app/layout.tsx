@@ -8,7 +8,7 @@ export async function generateMetadata(): Promise<Metadata> {
   const protocol = incomingHeaders.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
   const origin = `${protocol}://${host}`;
   const title = "HospitaLingo — English for Hotel & Restaurant";
-  const description = "Practice hospitality English with Cloudflare-powered speaking, listening, vocabulary, grammar, and role practice.";
+  const description = "Practice hospitality English with AI-powered speaking, listening, vocabulary, grammar, and role practice.";
   const socialImage = `${origin}/og.png`;
 
   return {
