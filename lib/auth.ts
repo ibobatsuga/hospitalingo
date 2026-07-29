@@ -1,5 +1,3 @@
-import { Buffer } from "node:buffer";
-
 export type UserRole = "admin" | "learner";
 
 export type AuthUser = {
@@ -73,12 +71,16 @@ function normalizeEmail(email: string) {
 
 function randomToken(byteLength = 32) {
   const bytes = crypto.getRandomValues(new Uint8Array(byteLength));
-  return Buffer.from(bytes).toString("base64url");
+  return bytesToHex(bytes);
+}
+
+function bytesToHex(bytes: Uint8Array) {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 async function sha256(value: string) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  return Buffer.from(digest).toString("base64url");
+  return bytesToHex(new Uint8Array(digest));
 }
 
 async function passwordDigest(password: string, salt: string, iterations: number) {
@@ -90,11 +92,11 @@ async function passwordDigest(password: string, salt: string, iterations: number
     ["deriveBits"],
   );
   const bits = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", hash: "SHA-256", salt: Buffer.from(salt, "base64url"), iterations },
+    { name: "PBKDF2", hash: "SHA-256", salt: new TextEncoder().encode(salt), iterations },
     key,
     256,
   );
-  return Buffer.from(bits).toString("base64url");
+  return bytesToHex(new Uint8Array(bits));
 }
 
 async function buildPasswordRecord(password: string) {

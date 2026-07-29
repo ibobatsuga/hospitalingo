@@ -157,7 +157,9 @@ async function handleSetup(request: Request, env: Env) {
       ? "Set HOSPITALINGO_SETUP_TOKEN in Cloudflare first."
       : code === "SETUP_COMPLETE"
         ? "Initial setup has already been completed."
-        : "The setup token is incorrect.";
+        : code === "INVALID_SETUP_TOKEN"
+          ? "The setup token is incorrect."
+          : "Administrator setup could not be completed. Please try again.";
     return Response.json({ error: message }, { status: code === "SETUP_COMPLETE" ? 409 : 403 });
   }
 }
