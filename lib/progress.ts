@@ -110,12 +110,11 @@ export async function ensureProgressSchema(db: D1Database) {
   schemaReady = true;
 }
 
-export async function consumeDailyAiQuota(db: D1Database, learnerId: string, kind: "assessment" | "transcription") {
+export async function consumeDailyAiQuota(db: D1Database, learnerId: string, kind: "assessment" | "transcription", limit: number) {
   await ensureProgressSchema(db);
   const date = new Date().toISOString().slice(0, 10);
   const row = await db.prepare("SELECT assessments, transcriptions FROM ai_daily_usage WHERE learner_id = ? AND usage_date = ?")
     .bind(learnerId, date).first<{ assessments: number; transcriptions: number }>();
-  const limit = kind === "assessment" ? 30 : 5;
   const used = kind === "assessment" ? row?.assessments ?? 0 : row?.transcriptions ?? 0;
   if (used >= limit) return { allowed: false, used, limit };
   const assessmentIncrement = kind === "assessment" ? 1 : 0;

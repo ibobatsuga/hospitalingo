@@ -60,6 +60,7 @@ export default function Home() {
   const [recordingPaused, setRecordingPaused] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [transcribingTarget, setTranscribingTarget] = useState<RecordingTarget | null>(null);
+  const [transcriptionError, setTranscriptionError] = useState("");
   const [composer, setComposer] = useState("");
   const [notice, setNotice] = useState("Your AI-powered learning plan is ready.");
   const [aiAvailable, setAiAvailable] = useState(false);
@@ -145,6 +146,7 @@ export default function Home() {
     setRoleResponse("");
     setRawRoleTranscript("");
     setRoleFeedback(null);
+    setTranscriptionError("");
     setLessonComplete(false);
     setView("lesson");
   }
@@ -200,14 +202,16 @@ export default function Home() {
 
   async function transcribeRecording(blob: Blob, target: RecordingTarget) {
     setTranscribingTarget(target);
+    setTranscriptionError("");
     try {
+      if (blob.size < 1000) throw new Error("The recording was too short or silent. Record for at least two seconds and try again.");
       const form = new FormData();
       form.append("audio", blob, blob.type.includes("mp4") ? "hospitalingo-recording.m4a" : "hospitalingo-recording.webm");
       form.append("domain", domain);
       form.append("lessonId", lesson.id);
       form.append("prompt", target === "speaking" ? lesson.speakingPrompt : lesson.roleScenario.guestMessage);
       const response = await fetch("/api/transcribe", { method: "POST", body: form });
-      const payload = (await response.json()) as { text?: string; rawText?: string; normalized?: boolean; error?: string };
+      const payload = await response.json().catch(() => ({ error: `Transcription service returned ${response.status}.` })) as { text?: string; rawText?: string; normalized?: boolean; error?: string };
       if (!response.ok || !payload.text) throw new Error(payload.error || "No transcript returned.");
       if (target === "speaking") {
         setTranscript(payload.text);
@@ -223,8 +227,11 @@ export default function Home() {
           ? "AI transcribed the recording and corrected likely hospitality-term errors. Compare the raw version before assessment."
           : "Recording transcribed by AI. Review the transcript before assessment.",
       );
+      setTranscriptionError("");
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "The recording could not be transcribed. You can type the transcript instead.");
+      const message = error instanceof Error ? error.message : "The recording could not be transcribed. You can type the transcript instead.";
+      setNotice(message);
+      setTranscriptionError(message);
     } finally {
       setTranscribingTarget(null);
     }
@@ -235,8 +242,11 @@ export default function Home() {
       recorderRef.current.stop();
       return;
     }
+    setTranscriptionError("");
     if (!("MediaRecorder" in window) || !navigator.mediaDevices?.getUserMedia) {
-      setNotice("Microphone recording is not supported by this browser. You can type the confirmed transcript instead.");
+      const message = "Microphone recording is not supported by this browser. You can type the confirmed transcript instead.";
+      setNotice(message);
+      setTranscriptionError(message);
       return;
     }
     try {
@@ -265,7 +275,8 @@ export default function Home() {
         if (recordingTimeoutRef.current) clearTimeout(recordingTimeoutRef.current);
         if (recordingClockRef.current) clearInterval(recordingClockRef.current);
         stream.getTracks().forEach((track) => track.stop());
-        const blob = new Blob(recordingChunksRef.current, { type: recorder.mimeType || "audio/webm" });
+        const detectedType = recorder.mimeType || recordingChunksRef.current[0]?.type || "audio/webm";
+        const blob = new Blob(recordingChunksRef.current, { type: detectedType });
         recorderRef.current = null;
         setRecordingTarget(null);
         setRecordingPaused(false);
@@ -281,7 +292,9 @@ export default function Home() {
       setRecordingTarget(target);
       setNotice("Recording… Speak naturally, then tap Stop recording.");
     } catch {
-      setNotice("Microphone permission was not granted. You can type the confirmed transcript instead.");
+      const message = "Microphone permission was not granted. Allow microphone access for HospitaLingo, then try again.";
+      setNotice(message);
+      setTranscriptionError(message);
     }
   }
 
@@ -524,6 +537,7 @@ export default function Home() {
                   <textarea value={transcript} onChange={(event) => { setTranscript(event.target.value); setSpeakingFeedback(null); }} placeholder="Your recording will appear here. You can also type your response…" rows={5} />
                 </label>
                 {rawSpeakingTranscript && rawSpeakingTranscript !== transcript && <RawTranscript text={rawSpeakingTranscript} onUse={() => { setTranscript(rawSpeakingTranscript); setSpeakingFeedback(null); }} />}
+                {transcriptionError && <p className="transcription-error" role="alert">{transcriptionError}</p>}
                 {speakingFeedback && <FeedbackCard feedback={speakingFeedback} modelAnswer={lesson.modelAnswer} />}
                 <div className="surface-actions">
                   <Button color="primary" size="lg" loading={assessing} disabled={!transcript.trim()} onClick={confirmTranscript}>Assess my response</Button>
@@ -680,6 +694,7 @@ export default function Home() {
                     }}
                   />
                 )}
+                {transcriptionError && <p className="transcription-error" role="alert">{transcriptionError}</p>}
                 {speakingFeedback && (
                   <FeedbackCard feedback={speakingFeedback} modelAnswer={lesson.modelAnswer} />
                 )}
@@ -736,6 +751,7 @@ export default function Home() {
                     }}
                   />
                 )}
+                {transcriptionError && <p className="transcription-error" role="alert">{transcriptionError}</p>}
                 {roleFeedback && <FeedbackCard feedback={roleFeedback} modelAnswer={lesson.modelAnswer} />}
                 <div className="surface-actions end">
                   <Button color="primary" size="lg" loading={saving} disabled={!roleResponse.trim()} onClick={finishLesson}>

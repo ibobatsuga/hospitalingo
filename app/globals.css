@@ -268,6 +268,7 @@ button { color: inherit; }
 }
 .raw-transcript summary { cursor: pointer; color: var(--text); font-weight: 700; }
 .raw-transcript p { margin: 10px 0 4px; line-height: 1.5; }
+.transcription-error { margin: 12px 0 0; padding: 11px 13px; border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--line)); border-radius: 11px; background: var(--danger-soft); color: var(--danger); font-size: 10px; line-height: 1.5; }
 .scenario-brief { padding: 17px; border-radius: 16px; background: var(--surface-subtle); }
 .scenario-brief h2 { margin: 18px 0 12px; }
 .scenario-brief p { margin: 0; color: var(--text-muted); font-size: 11px; line-height: 1.55; }

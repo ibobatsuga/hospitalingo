@@ -286,7 +286,7 @@ async function handleAssessmentRequest(request: Request, env: Env) {
   }
   const terms = lesson ? getTerms(lesson.termIds) : hospitalityTerms.filter((term) => term.domain === parsed.data.domain).slice(0, 6);
   if (env.DB && hasCloudflareAi(env)) {
-    const quota = await consumeDailyAiQuota(env.DB, user.id, "assessment");
+    const quota = await consumeDailyAiQuota(env.DB, user.id, "assessment", user.role === "admin" ? 200 : 30);
     if (!quota.allowed) return Response.json({ error: `Daily AI assessment limit reached (${quota.limit}). Continue with tomorrow's practice or use the lesson review.` }, { status: 429 });
   }
   const result = await assessWithCloudflare(env, { ...parsed.data, terms });
@@ -324,15 +324,26 @@ async function handleTranscriptionRequest(request: Request, env: Env) {
   if (audio.size < 1000) return Response.json({ error: "The recording was too short or silent. Please try again." }, { status: 400 });
   if (audio.size > 10 * 1024 * 1024) return Response.json({ error: "Recording must be under 10 MB." }, { status: 413 });
   if (env.DB) {
-    const quota = await consumeDailyAiQuota(env.DB, user.id, "transcription");
+    const quota = await consumeDailyAiQuota(env.DB, user.id, "transcription", user.role === "admin" ? 100 : 5);
     if (!quota.allowed) return Response.json({ error: `Daily recording limit reached (${quota.limit}). You can still type and confirm your transcript.` }, { status: 429 });
   }
   try {
     const context = `${domain} service. Activity: ${activityPrompt}. Approved terms: ${approvedTerms}`;
     const transcript = await transcribeWithCloudflare(env, await audio.arrayBuffer(), context);
     return Response.json({ ...transcript, provider: "cloudflare-workers-ai" });
-  } catch {
-    return Response.json({ error: "The recording could not be transcribed. Please try again or type the confirmed transcript." }, { status: 502 });
+  } catch (error) {
+    const supportCode = request.headers.get("cf-ray") ?? crypto.randomUUID().slice(0, 8);
+    console.error("TRANSCRIPTION_FAILED", JSON.stringify({
+      supportCode,
+      audioType: audio.type || "unknown",
+      audioBytes: audio.size,
+      message: error instanceof Error ? error.message : "Unknown transcription error",
+    }));
+    return Response.json({
+      error: `The recording could not be transcribed. Try again or type the transcript. Support code: ${supportCode}`,
+      errorCode: "TRANSCRIPTION_FAILED",
+      supportCode,
+    }, { status: 502 });
   }
 }
 
@@ -430,7 +441,10 @@ const worker = {
         audioRetention: "transient",
         glossaryEntries: hospitalityTerms.length,
         lessons: lessons.length,
-        dailyLimits: { assessments: 30, transcriptions: 5 },
+        dailyLimits: {
+          learner: { assessments: 30, transcriptions: 5 },
+          admin: { assessments: 200, transcriptions: 100 },
+        },
       });
     }
 

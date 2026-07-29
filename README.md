@@ -18,7 +18,7 @@ HospitaLingo is a standalone English learning app for hotel and restaurant work.
 - Internal email/password accounts with secure server sessions
 - Separate D1-backed transcript history, unique lesson completion, progress, and certificate journey for every learner
 - One owner approval queue with certificates valid for 365 days
-- Free-tier guardrails: 30 AI assessments and 5 transcriptions per learner per day, with typed practice always available
+- Free-tier guardrails: 30 AI assessments and 5 transcriptions per learner per day, with typed practice always available; the administrator receives a larger testing allowance
 - Administrator account creation and CSV import for up to 100 learners per batch
 
 ## Run locally
