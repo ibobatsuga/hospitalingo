@@ -23,10 +23,6 @@ type UserRow = {
 const SESSION_COOKIE = "hospitalingo_session";
 const PASSWORD_ITERATIONS = 10_000;
 const SESSION_DAYS = 7;
-const INITIAL_SETUP_FALLBACK_TOKEN = "0301c4484618d146b9aff50e731e0605a0a0cba398f55058";
-
-export const initialSetupFallbackAvailable = true;
-
 let authSchemaReady = false;
 
 export async function ensureAuthSchema(db: D1Database) {
@@ -158,12 +154,9 @@ export async function createInitialAdmin(
   input: { email: string; displayName: string; password: string; suppliedSetupToken: string; expectedSetupToken?: string },
 ) {
   await ensureAuthSchema(db);
+  if (!input.expectedSetupToken) throw new Error("SETUP_UNAVAILABLE");
   const suppliedToken = input.suppliedSetupToken.trim();
-  const matchesFallback = suppliedToken === INITIAL_SETUP_FALLBACK_TOKEN;
-  const matchesCloudflareSecret = input.expectedSetupToken
-    ? safeEqual(suppliedToken, input.expectedSetupToken.trim())
-    : false;
-  if (!matchesCloudflareSecret && !matchesFallback) throw new Error("INVALID_SETUP_TOKEN");
+  if (!safeEqual(suppliedToken, input.expectedSetupToken.trim())) throw new Error("INVALID_SETUP_TOKEN");
   if ((await userCount(db)) > 0) throw new Error("SETUP_COMPLETE");
   const password = await buildPasswordRecord(input.password);
   const userId = crypto.randomUUID();

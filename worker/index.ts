@@ -15,7 +15,6 @@ import {
   createInitialAdmin,
   createLearners,
   getAuthenticatedUser,
-  initialSetupFallbackAvailable,
   listUsersWithProgress,
   login,
   logout,
@@ -133,7 +132,7 @@ async function handleAuthStatus(request: Request, env: Env) {
     authenticated: Boolean(user),
     user,
     setupRequired,
-    setupAvailable: Boolean(env.HOSPITALINGO_SETUP_TOKEN) || initialSetupFallbackAvailable,
+    setupAvailable: Boolean(env.HOSPITALINGO_SETUP_TOKEN),
   }, { headers: { "cache-control": "no-store" } });
 }
 
