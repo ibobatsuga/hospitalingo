@@ -129,3 +129,28 @@ test("keeps product metadata and Cloudflare persistence foundations", async () =
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
   await assert.rejects(access(new URL("../app/_sites-preview", projectRoot)));
 });
+
+test("preserves the complete audited hospitality terminology source", async () => {
+  const markdown = await readFile(new URL("../content/HOSPITALITY-MASTER.md", import.meta.url), "utf8");
+  const entries = [...markdown.matchAll(/^## (\d{1,3})\. /gm)].map((match) => Number(match[1]));
+  assert.equal(entries.length, 436);
+  assert.equal(entries.filter((number) => number === 81).length, 2);
+  assert.equal(entries.filter((number) => number === 160).length, 2);
+  assert.equal(entries.filter((number) => number === 356).length, 1);
+  assert.match(markdown, /declared_terminology_entries: 356/);
+  assert.match(markdown, /body_terminology_entries: 436/);
+  assert.match(markdown, /Nomor 81-160 digunakan dua kali/);
+  for (const section of [
+    "Pengertian",
+    "Landasan Teoritis",
+    "Peran dan Fungsi",
+    "Parameter dan Formulasi",
+    "Simulasi",
+    "Dampak",
+    "Faktor Risiko",
+    "Tindakan Pengendalian",
+    "Intisari",
+  ]) {
+    assert.equal([...markdown.matchAll(new RegExp(`^### ${section}$`, "gm"))].length, 436);
+  }
+});

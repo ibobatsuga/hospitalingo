@@ -52,6 +52,16 @@ npm test
 npm run lint
 ```
 
+## Terminology source
+
+The converted master terminology source is stored in `content/HOSPITALITY-MASTER.md`. Regenerate it from the extracted PDF text with:
+
+```bash
+HOSPITALITY_CONVERSION_DATE=YYYY-MM-DD node scripts/convert-hospitality-master.mjs
+```
+
+The PDF metadata and table of contents declare 356 terms, while the document body contains 436 complete entries because source numbers 81-160 are used twice for different terminology sets. The converter preserves both sets and fails validation if entries or required sections are lost. Final numbering must be approved before importing the content into production D1.
+
 The detailed product and architecture decisions live in `docs/PRD-HOSPITALINGO.md`.
 
 For Git-connected Cloudflare Workers builds, the MVP provisions D1 automatically and binds Workers AI as `AI`. R2 is intentionally not required during the initial deployment because the current learning flow does not persist source files or raw learner recordings. Enable and bind R2 as `CONTENT` when the approved content-ingestion phase begins.
