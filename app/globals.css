@@ -1261,17 +1261,33 @@ button { color: inherit; }
 .glossary-card strong { font-size: 13px; color: #ffffff; }
 .glossary-card em { font-size: 10px; font-style: normal; color: var(--text-muted); }
 .glossary-actions { display: flex; align-items: center; gap: 8px; }
-.tts-pill-btn {
-  padding: 4px 8px;
-  border-radius: 999px;
+.glossary-audio-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
   border: 1px solid var(--line);
   background: var(--surface-raised);
   color: #ffffff;
-  font-size: 10px;
-  font-weight: 700;
+  display: grid;
+  place-items: center;
   cursor: pointer;
+  flex-shrink: 0;
+  transition: transform 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.glossary-audio-btn:hover {
+  background: #ffffff;
+  color: #121316;
+  transform: scale(1.08);
+}
+.glossary-audio-btn svg {
+  width: 15px;
+  height: 15px;
 }
 .expand-indicator {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
   font-size: 16px;
   color: var(--text-muted);
 }

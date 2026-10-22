@@ -1175,7 +1175,7 @@ function GlossaryBrowser({ onClose }: { onClose: () => void }) {
               <div className="glossary-actions">
                 <button
                   type="button"
-                  className="audio-action tts-pill-btn"
+                  className="glossary-audio-btn"
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
@@ -1183,7 +1183,7 @@ function GlossaryBrowser({ onClose }: { onClose: () => void }) {
                   }}
                   aria-label={`Pronounce ${entry.term}`}
                 >
-                  🔊 Audio
+                  <Icon name="volume" />
                 </button>
                 <span className="expand-indicator">+</span>
               </div>
@@ -1244,6 +1244,7 @@ function Icon({ name }: { name: string }) {
   if (name === "close") return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>;
   if (name === "logout") return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" x2="9" y1="12" y2="12" /></svg>;
   if (name === "login") return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" /><polyline points="10 17 15 12 10 7" /><line x1="15" x2="3" y1="12" y2="12" /></svg>;
+  if (name === "volume") return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M15.54 8.46a5 5 0 0 1 0 7.07" /><path d="M19.07 4.93a10 10 0 0 1 0 14.14" /></svg>;
   return null;
 }
 
