@@ -1425,8 +1425,9 @@ button { color: inherit; }
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 3px;
+  gap: 2px;
   border: 0;
+  padding: 0;
   background: transparent;
   color: #8b92a0;
   cursor: pointer;
@@ -1434,7 +1435,14 @@ button { color: inherit; }
   font-weight: 600;
   transition: color 0.15s ease;
 }
-.bottom-nav button svg { width: 18px; height: 18px; }
+.bottom-nav button span {
+  line-height: 1;
+}
+.bottom-nav button svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
 .bottom-nav button.active { color: #ffffff; font-weight: 800; }
 .bottom-nav .nav-talk {
   width: 52px;
@@ -1445,10 +1453,23 @@ button { color: inherit; }
   color: #121316;
   box-shadow: 0 4px 18px rgba(255, 255, 255, 0.35);
   margin-top: -12px;
+  padding: 0;
+  gap: 2px;
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 .bottom-nav .nav-talk:hover {
   transform: scale(1.06);
   box-shadow: 0 6px 24px rgba(255, 255, 255, 0.5);
 }
-.bottom-nav .nav-talk svg { width: 22px; height: 22px; color: #121316; }
+.bottom-nav .nav-talk svg {
+  width: 18px;
+  height: 18px;
+  color: #121316;
+  margin-top: 1px;
+}
+.bottom-nav .nav-talk span {
+  font-size: 8.5px;
+  font-weight: 700;
+  color: #121316;
+  line-height: 1;
+}
