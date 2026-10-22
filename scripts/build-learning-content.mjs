@@ -27,15 +27,6 @@ function section(block, name) {
   return clean(match?.[1]);
 }
 
-function compact(value, maximum = 220) {
-  if (!value) return "";
-  const paragraphs = value.split(/(?<=[.!?])\s+(?=[A-ZÀ-Ý0-9])/).filter(Boolean);
-  const selected = paragraphs.slice(0, 2).join(" ");
-  if (selected.length <= maximum) return selected;
-  const shortened = selected.slice(0, maximum).replace(/\s+\S*$/, "").trim();
-  return `${shortened}…`;
-}
-
 function slug(value) {
   return value
     .toLowerCase()
@@ -58,9 +49,13 @@ const terms = blocks.map((block, index) => {
   const occurrence = (seen.get(baseId) ?? 0) + 1;
   seen.set(baseId, occurrence);
   const id = occurrence === 1 ? baseId : `${baseId}-${occurrence}`;
-  const meaning = compact(section(block, "Pengertian"));
-  const workplaceUse = compact(section(block, "Peran dan Fungsi") || section(block, "Intisari"));
-  const controlNote = compact(section(block, "Tindakan Pengendalian"), 160);
+
+  // Complete, unabridged text from Hospitality Operations & Governance Master Edition
+  const meaning = section(block, "Pengertian");
+  const workplaceUse = section(block, "Peran dan Fungsi") || section(block, "Intisari");
+  const simulation = section(block, "Simulasi");
+  const controlNote = section(block, "Tindakan Pengendalian") || section(block, "Faktor Risiko");
+  const takeaway = section(block, "Intisari");
   const isRestaurant = /F&B|FOOD|BANQUET|KITCHEN|RESTAURANT/i.test(`${department} ${subcategory} ${term}`);
 
   return {
@@ -72,7 +67,9 @@ const terms = blocks.map((block, index) => {
     domain: isRestaurant ? "restaurant" : "hotel",
     meaning,
     workplaceUse,
+    simulation,
     controlNote,
+    takeaway,
     sourcePage,
   };
 });
@@ -86,4 +83,4 @@ await writeFile(
   "utf8",
 );
 
-console.log(`Generated ${terms.length} compact glossary entries at ${path.relative(root, outputPath)}.`);
+console.log(`Generated ${terms.length} complete, unabridged glossary entries at ${path.relative(root, outputPath)}.`);

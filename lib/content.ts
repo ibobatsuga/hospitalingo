@@ -12,6 +12,8 @@ export type HospitalityTerm = {
   meaning: string;
   workplaceUse: string;
   controlNote: string;
+  simulation?: string;
+  takeaway?: string;
   example: string;
   sourcePage: number;
 };

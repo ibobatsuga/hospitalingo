@@ -964,7 +964,7 @@ export default function Home() {
           </button>
           <button className={view === "glossary" ? "active" : ""} type="button" onClick={() => setView("glossary")}>
             <Icon name="search" />
-            <span>436 Terms</span>
+            <span>Glossary</span>
           </button>
           <button className={view === "progress" ? "active" : ""} type="button" onClick={() => setView("progress")}>
             <Icon name="chart" />
@@ -1190,11 +1190,22 @@ function GlossaryBrowser({ onClose }: { onClose: () => void }) {
             </summary>
             <div>
               <p>{entry.meaning}</p>
-              <h3>Operational use</h3>
+              <h3>Operational Use &amp; Strategy</h3>
               <p>{entry.workplaceUse}</p>
-              {entry.controlNote && <><h3>Control note</h3><p>{entry.controlNote}</p></>}
+              {entry.simulation && (
+                <>
+                  <h3>Simulasi Operasional</h3>
+                  <p>{entry.simulation}</p>
+                </>
+              )}
+              {entry.controlNote && (
+                <>
+                  <h3>Tindakan Pengendalian &amp; Kepatuhan</h3>
+                  <p>{entry.controlNote}</p>
+                </>
+              )}
               <blockquote>“{entry.example}”</blockquote>
-              <small>Adapted source · Master Edition p. {entry.sourcePage} · Entry {entry.sourceNumber}</small>
+              <small>Adapted source · Master Edition p. {entry.sourcePage} · Entry #{entry.sourceNumber}</small>
             </div>
           </details>
         ))}
