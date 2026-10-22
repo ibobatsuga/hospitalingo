@@ -16,7 +16,10 @@ export async function generateMetadata(): Promise<Metadata> {
     description,
     applicationName: "HospitaLingo",
     manifest: "/manifest.webmanifest",
-    themeColor: "#176d5e",
+    icons: {
+      icon: "/favicon.svg",
+    },
+    themeColor: "#141518",
     openGraph: {
       title,
       description,
