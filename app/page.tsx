@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, type ButtonHTMLAttributes, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getLesson, getTerms, scoreHospitalityResponse, type Domain, type HospitalityTerm } from "../lib/content";
+import { getLesson, getTerms, scoreHospitalityResponse, hospitalityTerms, glossaryDepartments, type Domain, type HospitalityTerm } from "../lib/content";
 
 type Progress = {
   hotelCompleted: number;
@@ -377,35 +377,24 @@ export default function Home() {
 
   return (
     <main className={`app-frame view-${view}`}>
-      {/* Header bar */}
+      {/* Header bar - Clean 1 line */}
       <header className="app-header">
         <button className="app-identity" onClick={() => setView("today")} aria-label="Open HospitaLingo home">
           <span className="app-mark">H</span>
-          <span>
-            <strong>HospitaLingo</strong>
-            <small>English for Hotel &amp; Restaurant</small>
-          </span>
+          <strong>HospitaLingo</strong>
         </button>
         <div className="header-actions">
-          <Badge color={aiAvailable ? "success" : "secondary"} variant="soft" pill>
-            {aiAvailable ? "AI ready" : "AI preview"}
-          </Badge>
-          {!currentUser ? (
-            <Badge color="info" variant="soft" pill>Guest Preview</Badge>
-          ) : null}
-          <button className="notification-button" type="button" aria-label="Notifications"><Icon name="bell" /></button>
           {currentUser ? (
-            <>
+            <div className="header-user-row">
               <button className="profile-chip" type="button" onClick={() => currentUser?.role === "admin" ? setView("users") : setView("progress")}>
                 <span>{initials(currentUser?.displayName)}</span>
                 <strong>{currentUser?.displayName?.split(" ")[0] ?? "Learner"}</strong>
               </button>
               <button className="signout-button" type="button" onClick={signOut}>Sign out</button>
-            </>
+            </div>
           ) : (
-            <button className="profile-chip login-trigger" type="button" onClick={() => setShowLoginModal(true)}>
-              <span>👤</span>
-              <strong>Sign in</strong>
+            <button className="header-signin-btn" type="button" onClick={() => setShowLoginModal(true)}>
+              Sign in
             </button>
           )}
         </div>
@@ -476,10 +465,6 @@ export default function Home() {
               <div className="squircle-carousel" aria-label="Daily Guest Scenarios">
                 {/* Soft Powder Blue */}
                 <article className="squircle-card blue">
-                  <div className="card-brandmark" aria-hidden="true">
-                    <span className="brandmark-circle" />
-                    <span className="brandmark-circle" />
-                  </div>
                   <div className="card-top">
                     <span className="card-badge">HOTEL FRONT OFFICE</span>
                     <h2>VIP Late Check-in &amp; Upgrade</h2>
@@ -495,10 +480,6 @@ export default function Home() {
 
                 {/* Soft Lilac */}
                 <article className="squircle-card lilac">
-                  <div className="card-brandmark" aria-hidden="true">
-                    <span className="brandmark-circle" />
-                    <span className="brandmark-circle" />
-                  </div>
                   <div className="card-top">
                     <span className="card-badge">FOOD &amp; BEVERAGE</span>
                     <h2>Special Dietary &amp; Wine Pairing</h2>
@@ -514,10 +495,6 @@ export default function Home() {
 
                 {/* Soft Mint */}
                 <article className="squircle-card mint">
-                  <div className="card-brandmark" aria-hidden="true">
-                    <span className="brandmark-circle" />
-                    <span className="brandmark-circle" />
-                  </div>
                   <div className="card-top">
                     <span className="card-badge">WELLNESS &amp; CONCIERGE</span>
                     <h2>Spa Treatment &amp; Local Tour</h2>
@@ -1129,6 +1106,15 @@ function GlossaryBrowser({ onClose }: { onClose: () => void }) {
       setEntries(data.entries);
       setDepartments(data.departments);
       setTotal(data.total);
+    } catch {
+      const q = nextQuery.toLowerCase();
+      const filtered = hospitalityTerms.filter((entry) =>
+        (!nextDepartment || entry.department === nextDepartment) &&
+        (!q || `${entry.term} ${entry.department} ${entry.subcategory} ${entry.meaning} ${entry.workplaceUse}`.toLowerCase().includes(q))
+      );
+      setEntries(filtered.slice(0, 60));
+      setDepartments(glossaryDepartments);
+      setTotal(filtered.length);
     } finally {
       setLoading(false);
     }

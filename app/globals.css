@@ -89,16 +89,17 @@ button { color: inherit; }
   background: var(--page);
 }
 
-/* App Header */
+/* App Header - Clean 1 line */
 .app-header {
-  min-height: 64px;
-  padding: 12px 18px;
+  height: 52px;
+  min-height: 52px;
+  padding: 0 16px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   border-bottom: 1px solid var(--line);
-  background: rgba(20, 21, 24, 0.85);
+  background: rgba(20, 21, 24, 0.92);
   backdrop-filter: blur(14px);
   position: sticky;
   top: 0;
@@ -114,9 +115,13 @@ button { color: inherit; }
   cursor: pointer;
   text-align: left;
 }
-.app-identity > span:last-child { display: grid; gap: 1px; }
-.app-identity strong { font-size: 15px; letter-spacing: -0.2px; color: #ffffff; }
-.app-identity small { color: var(--text-muted); font-size: 10px; }
+.app-identity strong {
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: -0.3px;
+  color: #ffffff;
+  white-space: nowrap;
+}
 .app-mark, .assistant-avatar {
   display: grid;
   place-items: center;
@@ -124,9 +129,35 @@ button { color: inherit; }
   background: #ffffff;
   font-weight: 800;
 }
-.app-mark { width: 34px; height: 34px; border-radius: 10px; font-size: 15px; }
+.app-mark {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  font-size: 14px;
+  flex-shrink: 0;
+}
 
 .header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.header-signin-btn {
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: var(--surface-raised);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.header-signin-btn:hover {
+  background: #ffffff;
+  color: #121316;
+}
+.header-user-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .notification-button {
   width: 36px;
   height: 36px;
@@ -359,23 +390,6 @@ button { color: inherit; }
 .squircle-card.lilac { background: #f1e6f7; }
 .squircle-card.mint { background: #e4f3e9; }
 
-.card-brandmark {
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  display: flex;
-  align-items: center;
-}
-.brandmark-circle {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  opacity: 0.3;
-  background: #121316;
-}
-.brandmark-circle + .brandmark-circle {
-  margin-left: -9px;
-}
 .card-badge {
   display: inline-block;
   padding: 4px 8px;

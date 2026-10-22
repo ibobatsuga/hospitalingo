@@ -348,7 +348,6 @@ async function handleTranscriptionRequest(request: Request, env: Env) {
 }
 
 async function handleGlossaryRequest(request: Request, env: Env) {
-  if (!(await currentUser(request, env))) return Response.json({ error: "Sign in is required." }, { status: 401 });
   const url = new URL(request.url);
   const query = (url.searchParams.get("q") ?? "").slice(0, 100);
   const department = (url.searchParams.get("department") ?? "").slice(0, 100);
