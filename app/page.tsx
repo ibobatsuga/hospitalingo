@@ -1332,8 +1332,8 @@ function LoginScreen({ onComplete, onCancel }: { onComplete: () => Promise<void>
           <p>Your lessons, attempts, and certificate progress stay with this account.</p>
         </div>
         <label>
-          <span>Email</span>
-          <input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
+          <span>Username or Email</span>
+          <input type="text" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} required />
         </label>
         <label>
           <span>Password</span>

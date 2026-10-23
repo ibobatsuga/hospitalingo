@@ -232,10 +232,12 @@ export async function login(
   await ensureAuthSchema(db);
   const key = await attemptKey(input.email, input.ip);
   if (await isLoginLocked(db, key)) throw new Error("LOGIN_LOCKED");
+  const normalized = normalizeEmail(input.email);
+  const alias = normalized.includes("@") ? normalized.split("@")[0] : `${normalized}@hospitalingo.internal`;
   const row = await db
     .prepare(`SELECT id, email, display_name, role, status, password_hash, password_salt,
-      password_iterations, must_change_password FROM app_users WHERE email = ?`)
-    .bind(normalizeEmail(input.email))
+      password_iterations, must_change_password FROM app_users WHERE email = ? OR email = ?`)
+    .bind(normalized, alias)
     .first<UserRow>();
   if (!row || row.status !== "active") {
     await recordLoginFailure(db, key);

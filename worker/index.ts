@@ -80,7 +80,7 @@ const passwordSchema = z.string().min(10).max(128).refine(
 );
 
 const loginSchema = z.object({
-  email: z.string().email().max(254),
+  email: z.string().min(1).max(254),
   password: z.string().min(1).max(128),
 });
 
