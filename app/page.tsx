@@ -1033,7 +1033,7 @@ function ProgressDashboard({
         <Requirement label="Complete 25 Hotel lessons" value={`${progress.hotelCompleted}/25`} done={progress.hotelCompleted >= 25} />
         <Requirement label="Complete 25 Restaurant lessons" value={`${progress.restaurantCompleted}/25`} done={progress.restaurantCompleted >= 25} />
         <Requirement label="Pass every Role Practice at 75+" value={totalCompleted === 50 ? "Passed" : "In progress"} done={totalCompleted === 50} />
-        <Requirement label="Approval by Bobi Agusta" value={status === "approved" ? "Approved" : status === "pending" ? "Pending" : "Locked"} done={status === "approved"} />
+        <Requirement label="Approval by Administrator" value={status === "approved" ? "Approved" : status === "pending" ? "Pending" : "Locked"} done={status === "approved"} />
       </div>
       {status === "approved" && (
         <>

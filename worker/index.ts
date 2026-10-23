@@ -127,7 +127,15 @@ async function currentUser(request: Request, env: Env) {
 
 function sameOrigin(request: Request) {
   const origin = request.headers.get("origin");
-  return !origin || origin === new URL(request.url).origin;
+  if (!origin) return true;
+  const requestOrigin = new URL(request.url).origin;
+  if (origin === requestOrigin) return true;
+  try {
+    const host = new URL(origin).hostname;
+    return host.endsWith("horisontimoho.id") || host.endsWith("workers.dev");
+  } catch {
+    return false;
+  }
 }
 
 function jsonWithCookie(payload: unknown, cookie: string, status = 200) {
