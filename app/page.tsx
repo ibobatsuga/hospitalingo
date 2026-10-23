@@ -37,6 +37,58 @@ const defaultProgress: Progress = {
   certificateEligible: false,
 };
 
+let activeAudio: HTMLAudioElement | null = null;
+
+function playSpeechSynthesis(text: string, rate = 0.92) {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+  try {
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "en-US";
+    utterance.rate = rate;
+    const voices = window.speechSynthesis.getVoices();
+    const preferredVoice =
+      voices.find((v) =>
+        v.lang.startsWith("en") &&
+        (v.name.includes("Natural") ||
+          v.name.includes("Enhanced") ||
+          v.name.includes("Google") ||
+          v.name.includes("Samantha") ||
+          v.name.includes("Ava"))
+      ) || voices.find((v) => v.lang.startsWith("en"));
+    if (preferredVoice) utterance.voice = preferredVoice;
+    window.speechSynthesis.speak(utterance);
+  } catch {
+    // fallback
+  }
+}
+
+function playAudioSource(audioUrl?: string, fallbackText?: string, rate = 0.92) {
+  if (typeof window === "undefined") return;
+  if (activeAudio) {
+    activeAudio.pause();
+    activeAudio.currentTime = 0;
+  }
+  if (audioUrl) {
+    try {
+      const audio = new Audio(audioUrl);
+      activeAudio = audio;
+      const playPromise = audio.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(() => {
+          if (fallbackText) playSpeechSynthesis(fallbackText, rate);
+        });
+      }
+      return;
+    } catch {
+      // fallback
+    }
+  }
+  if (fallbackText) {
+    playSpeechSynthesis(fallbackText, rate);
+  }
+}
+
 export default function Home() {
   const [view, setView] = useState<"today" | "lesson" | "talk" | "glossary" | "progress" | "users">("today");
   const [authMode, setAuthMode] = useState<AuthMode>("loading");
@@ -156,16 +208,8 @@ export default function Home() {
     setView("lesson");
   }
 
-  function play(text: string, rate = 0.92) {
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
-      setNotice("Audio playback is not available in this browser. The transcript remains available.");
-      return;
-    }
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = "en-US";
-    utterance.rate = rate;
-    window.speechSynthesis.speak(utterance);
+  function play(text: string, audioUrl?: string, rate = 0.92) {
+    playAudioSource(audioUrl, text, rate);
   }
 
   function continueStep() {
@@ -714,7 +758,7 @@ export default function Home() {
                     <article className="term-card" key={term.id}>
                       <div>
                         <strong>{term.term}</strong>
-                        <button className="audio-action" onClick={() => play(term.term)} aria-label={`Play ${term.term}`}>▶</button>
+                        <button className="audio-action" onClick={() => play(term.term, `/audio/terms/${term.id}.mp3`)} aria-label={`Play ${term.term}`}>▶</button>
                       </div>
                       <p>{term.meaning}</p>
                       <blockquote>“{term.example}”</blockquote>
@@ -733,9 +777,9 @@ export default function Home() {
               <div className="activity-panel narrow-panel">
                 <p className="activity-label">Listening</p>
                 <h2>Listen to the guest</h2>
-                <button className="listening-player" onClick={() => play(lesson.guestLine)}>
+                <button className="listening-player" onClick={() => play(lesson.guestLine, `/audio/lessons/${lesson.id}-guest.mp3`)}>
                   <span className="play-orb">▶</span>
-                  <span><strong>Play guest request</strong><small>Normal speed · transcript unlocks after answering</small></span>
+                  <span><strong>Play guest request</strong><small>Kokoro AI Audio · transcript unlocks after answering</small></span>
                 </button>
                 <fieldset className="answer-list">
                   <legend>{lesson.listeningQuestion}</legend>
@@ -850,7 +894,18 @@ export default function Home() {
                 <p className="activity-label">Role Practice</p>
                 <div className="scenario-brief">
                   <Badge color="secondary" variant="outline" pill>You are the {lesson.roleScenario.role}</Badge>
-                  <h2>{lesson.roleScenario.guestMessage}</h2>
+                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "0.75rem", margin: "0.5rem 0" }}>
+                    <h2 style={{ margin: 0 }}>{lesson.roleScenario.guestMessage}</h2>
+                    <button
+                      type="button"
+                      className="audio-action"
+                      style={{ flexShrink: 0, marginTop: "0.25rem" }}
+                      onClick={() => play(lesson.roleScenario.guestMessage, `/audio/lessons/${lesson.id}-role.mp3`)}
+                      aria-label="Play guest message"
+                    >
+                      ▶
+                    </button>
+                  </div>
                   <p><strong>Objective:</strong> {lesson.roleScenario.objective}</p>
                 </div>
                 <label className="transcript-field">
@@ -1125,13 +1180,8 @@ function GlossaryBrowser({ onClose }: { onClose: () => void }) {
     return () => window.clearTimeout(timer);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function playAudio(text: string) {
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = "en-US";
-    utterance.rate = 0.92;
-    window.speechSynthesis.speak(utterance);
+  function playAudio(text: string, audioUrl?: string) {
+    playAudioSource(audioUrl, text);
   }
 
   function search(event: FormEvent) {
@@ -1179,7 +1229,7 @@ function GlossaryBrowser({ onClose }: { onClose: () => void }) {
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    playAudio(entry.term);
+                    playAudio(entry.term, `/audio/terms/${entry.id}.mp3`);
                   }}
                   aria-label={`Pronounce ${entry.term}`}
                 >
