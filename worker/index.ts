@@ -321,7 +321,12 @@ async function handleTranscriptionRequest(request: Request, env: Env) {
   if (!hasCloudflareAi(env)) {
     return Response.json({ error: "Cloudflare speech recognition is not connected yet." }, { status: 503 });
   }
-  const form = await request.formData();
+  let form: FormData;
+  try {
+    form = await request.formData();
+  } catch (err) {
+    return Response.json({ error: "Could not read audio data from recording." }, { status: 400 });
+  }
   const audio = form.get("audio");
   const domain = form.get("domain") === "hotel" ? "hotel" : "restaurant";
   const lessonId = String(form.get("lessonId") ?? "").slice(0, 120);
